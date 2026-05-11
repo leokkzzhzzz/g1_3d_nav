@@ -74,28 +74,16 @@ docker exec -it hongtu_mapper bash
 
 ```bash
 source /opt/ros/noetic/setup.bash
-cd /root/g1_3d_nav
-
-# 初始化 workspace
-[ ! -L src ] && ln -sf HongTu/G1Nav2D/src src
-cd src
-[ ! -f livox_ros_driver2-master/package.xml ] && ln -sf package_ROS1.xml livox_ros_driver2-master/package.xml
-
-# 忽略非必要包
-for pkg in movebase pointcloud_to_laserscan ros_map_edit tool velocity_smoother_ema; do
-    touch $pkg/CATKIN_IGNORE
-done
+cd /root/g1_3d_nav/HongTu/G1Nav2D
 
 # 编译（单核 -j1，避免 Jetson OOM）
-cd /root/g1_3d_nav
-rm -rf build devel
 catkin_make -DROS_EDITION=ROS1 -j1
 ```
 
 ### 建图
 
 ```bash
-source devel/setup.bash
+source /root/g1_3d_nav/HongTu/G1Nav2D/devel/setup.bash
 roslaunch fastlio mapping.launch
 
 # 遥控 G1 扫描环境后保存
