@@ -85,6 +85,33 @@ catkin_make -DROS_EDITION=ROS1 -j1
 ```bash
 source /root/g1_3d_nav/HongTu/G1Nav2D/devel/setup.bash
 roslaunch fastlio mapping.launch
+```
+
+遥控 G1 在目标环境中走一圈，覆盖所有需要建图的区域。**注意走闭环路径**（回到之前经过的地方），触发 GTSAM 回环检测。
+
+### 保存地图
+
+```bash
+# 在另一个终端进入容器
+docker exec -it hongtu_mapper bash
+source /root/g1_3d_nav/HongTu/G1Nav2D/devel/setup.bash
+
+# 创建输出目录
+mkdir -p /root/g1_3d_nav/maps
+
+# 保存 PCD（ROS 1 rosservice 参数用 YAML 格式）
+rosservice call /save_map "{save_path: '/root/g1_3d_nav/maps/target.pcd', resolution: 0.05}"
+```
+
+PCD 文件保存到宿主机 `~/g1_3d_nav/maps/target.pcd`，供 Track 1b（deepglint 定位）和 Track 2（jie_3d_nav OctoMap）使用。
+
+### 验证地图
+
+```bash
+# 查看 PCD 文件信息
+pcl_viewer /root/g1_3d_nav/maps/target.pcd
+# 或在宿主机上用 CloudCompare 打开
+```
 
 # 遥控 G1 扫描环境后保存
 rosservice call /save_map "save_path: '/maps/target.pcd'"
