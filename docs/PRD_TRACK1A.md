@@ -1,7 +1,7 @@
 # PRD: Track 1a — G1 离线 3D LiDAR 建图
 
-**Status**: In Progress (建图容器 + 驱动已就绪，待完整移动建图)
-**Created**: 2026-05-12
+**Status**: ✅ 建图容器 + 驱动验证通过 | ⚠️ 待完成移动建图并保存 PCD
+**Created**: 2026-05-12 | **Updated**: 2026-05-12
 **Context**: [g1_3d_nav](https://github.com/leokkzzhzzz/g1_3d_nav)
 
 ---
@@ -118,6 +118,21 @@ G1 Jetson Orin NX                          Leo 笔记本
 | 静止点云质量 | 保存 PCD，分析 bounding box | 0 离群点，Z 0.4-1.4m 合理 |
 | 编译产物 | `ls devel/lib/fast_lio/` | fastlio_mapping 可执行文件 |
 | 远程 RViz | `rostopic list` 从 Leo 笔记本 | 话题列表正确获取 |
+
+### PCD 保存机制
+
+deepglint FAST_LIO 通过 ROS 参数控制保存（非 `/save_map` 服务），参数仅在启动时读取：
+
+| 参数 | 值 | 说明 |
+|------|-----|------|
+| `/pcd_save/pcd_save_en` | `true` | 使能保存 |
+| `/pcd_save/interval` | `10` | 每 N 帧保存一次 |
+| 输出路径 | `FAST_LIO_SRC/PCD/scans_0.pcd` | ROOT_DIR 宏编译时固定 |
+
+启动命令：
+```
+roslaunch fast_lio mapping_g1_full.launch rviz:=false pcd_save_en:=true interval:=10
+```
 
 ### 待验证
 - [ ] 移动建图：遥控 G1 走一圈，PCD 结构匹配真实场景
