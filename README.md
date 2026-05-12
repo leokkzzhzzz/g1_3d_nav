@@ -106,13 +106,22 @@ make -C build -j1
 ### 建图
 
 ```bash
-# G1 容器内 — 一键启动驱动 + FAST-LIO（无 RViz，带自动保存）
+# G1 容器内 — 一键启动驱动 + FAST-LIO（无 RViz）
+# PCD 已通过 mid360_g1.yaml 预配置为退出时自动保存
 source /opt/ros/noetic/setup.bash
 source /root/g1_3d_nav/deepglint_ws/devel/setup.bash
-roslaunch fast_lio mapping_g1_full.launch rviz:=false pcd_save_en:=true interval:=10
+roslaunch fast_lio mapping_g1_full.launch rviz:=false
 ```
 
-PCD 保存在 `deepglint_ws/src/FAST_LIO/PCD/scans_0.pcd`。
+**Ctrl-C 停止时自动保存全部点云为一个 PCD**（`pcd_save_en: true`, `interval: -1`）。
+保存在 `deepglint_ws/src/FAST_LIO/PCD/scans.pcd`。
+
+配置项在 `deepglint_ws/src/FAST_LIO/config/mid360_g1.yaml`:
+```yaml
+pcd_save:
+    pcd_save_en: true    # 改为 true
+    interval: -1         # -1 = 所有帧合并为一个 PCD，退出时自动保存
+```
 
 ### Leo 笔记本远程 RViz
 
