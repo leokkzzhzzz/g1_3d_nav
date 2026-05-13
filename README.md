@@ -1,56 +1,120 @@
-# G1 3D Navigation — v2.0.0
+# G1 3D Navigation — v2.1.0
 
-Unitree G1 人形机器人 3D OctoMap 导航系统部署。
+Unitree G1 人形机器人 3D 导航部署。当前完成离线建图 + 运行时重定位。
 
-## 当前进度
+## 项目状态
 
 | Track | 内容 | 状态 |
 |-------|------|------|
-| **1a** | deepglint ROS 1 离线建图 | ✅ scans.pcd (129MB, 419万点) |
-| **1b** | deepglint ROS 2 重定位 | ✅ 编译完成, ⬜ 测试 |
+| 1a | ROS 1 离线建图 → scans.pcd | ✅ 完成 |
+| 1b | ROS 2 重定位 | ✅ 编译完成 |
 | 2 | jie_3d_nav OctoMap 导航 | ⬜ |
 | 3 | g1pilot 控制器 | ⬜ |
 
-## 架构
+## 最终目录结构
+
+G1 宿主机 `~/g1_3d_nav/`：
 
 ```
-G1 Jetson Orin NX                         Leo 笔记本
-┌──────────────────────────────┐          ┌─────────────────────┐
-│ hongtu_mapper 容器            │  WiFi    │ g1_rviz 容器         │
-│ (ROS 1 Noetic)               │ ◄────── │ (ROS 1 Noetic)       │
-│                              │  11311   │ ROS_MASTER_URI → G1 │
-│ deepglint livox_ros_driver2  │          │ rviz (官方配置)      │
-│   → 点云 + IMU 同时 roll=180 │          └─────────────────────┘
-│ fast_lio_mapping             │
-│   → /livox/lidar CustomMsg   │          未来
-│   → /livox/imu               │          ┌─────────────────────┐
-│   → /cloud_registered_body   │ map.pcd  │ ROS 2 容器 (运行时)  │
-│   → /Laser_map_1             │ ───────→ │ deepglint open3d_loc │
-│   → TF (body)                │          │ octomap_server       │
-│                              │          │ jie_3d_nav + Web     │
-│ 一条命令:                     │          │ g1pilot 控制器       │
-│ mapping_g1_full.launch       │          └─────────────────────┘
-└──────────────────────────────┘
+~/g1_3d_nav/
+├── deepglint_ws/              ← ROS 1 建图 workspace
+│   ├── devel/lib/fast_lio/fastlio_mapping
+│   └── src/FAST_LIO/launch/
+│       ├── mapping_mid360_g1.launch
+│       └── mapping_g1_full.launch
+├── livox_ws/                  ← ROS 2 驱动 workspace
+│   └── install/livox_ros_driver2/
+├── g1_ws/                     ← ROS 2 定位 workspace
+│   └── install/
+│       ├── fast_lio/fastlio_mapping
+│       └── open3d_loc/global_localization_node
+├── deps/open3d141/            ← Open3D v1.4.1 (ARM64)
+├── maps/scans.pcd             ← 共享 PCD 地图 (129MB)
+├── start_mapping.sh           ← Track 1a 一键建图
+└── track1a/                   ← Dockerfile + 部署文档
 ```
 
-## 目录
-
-| 文件 | 说明 |
-|------|------|
-| [CONTEXT.md](CONTEXT.md) | 领域术语、架构决策 (ADR) |
-| [DEPLOYMENT_PLAN.md](DEPLOYMENT_PLAN.md) | 三路部署计划 |
-| [docs/PRD_TRACK1A.md](docs/PRD_TRACK1A.md) | Track 1a 详细 PRD |
-| [track1a/](track1a/) | Dockerfile + 启动脚本 |
-
-## Track 1a: 离线建图 — 快速开始
+## Track 1a: 离线建图
 
 ### 前置条件
 
-- G1 Jetson Orin NX（Ubuntu 22.04, Docker）
-- Livox MID360（IP: 192.168.123.120, 倒装 roll=180°）
-- Docker 镜像 `hongtu-fastlio2:noetic`
+- G1 Jetson Orin NX
+- Docker 镜像 `hongtu-fastlio2:noetic` (5.7GB)
+- Livox MID360 (IP: 192.168.123.120, 倒装 roll=180°)
 
-### G1 上构建镜像
+### 一键启动
+
+```bash
+cd ~/g1_3d_nav
+./start_mapping.sh
+```
+
+### 操作步骤
+
+1. 启动后前 10 秒保持 G1 静止（IMU 初始化）
+2. 遥控 G1 缓慢走一圈，走闭环路径触发回环
+3. **Ctrl-C 停止 → 自动保存 `scans.pcd`** 到 `deepglint_ws/src/FAST_LIO/PCD/`
+
+## Track 1b: 运行时重定位
+
+### 前置条件
+
+- Docker 镜像 `3d_nav_g1` (7.2GB)
+- Track 1a 产出的 `scans.pcd`
+
+### 启动容器
+
+```bash
+docker run -d --network host --name 3d_nav \
+    -v $HOME/g1_3d_nav:/root/3d_nav_g1 \
+    -e DISPLAY=:0 \
+    -v /tmp/.X11-unix:/tmp/.X11-unix:ro \
+    -v $HOME/.Xauthority:/root/.Xauthority:ro \
+    -e XAUTHORITY=/root/.Xauthority \
+    3d_nav_g1 sleep infinity
+```
+
+### 启动定位
+
+需要两个终端，都进容器：
+
+**终端 1 — MID360 驱动：**
+
+```bash
+docker exec -it 3d_nav bash
+source /opt/ros/humble/setup.bash
+source /root/3d_nav_g1/livox_ws/install/setup.bash
+ros2 launch livox_ros_driver2 msg_MID360_launch.py
+```
+
+**终端 2 — 定位 + RViz：**
+
+```bash
+docker exec -it 3d_nav bash
+source /opt/ros/humble/setup.bash
+source /root/3d_nav_g1/livox_ws/install/setup.bash
+source /root/3d_nav_g1/g1_ws/install/setup.bash
+ros2 launch open3d_loc localization_3d_g1.launch.py
+```
+
+### 重定位操作
+
+1. RViz 中点击 **2D Pose Estimate**（绿色箭头）
+2. 在地图点云上点击 G1 当前位置，拖动箭头对准前进方向
+3. ICP 自动匹配，`/localization_3d_confidence` 输出置信度
+
+### 验证定位
+
+```bash
+docker exec 3d_nav bash -c 'source /opt/ros/humble/setup.bash && ros2 topic echo /localization_3d_confidence --once'
+# data: 0.78 → 定位成功
+```
+
+## 镜像构建记录
+
+### hongtu-fastlio2:noetic (5.7GB)
+
+Docker build 在 Jetson 上失败（iptables raw 表缺失），需手动构建：
 
 ```bash
 docker pull ros:noetic-ros-base
@@ -71,96 +135,39 @@ docker exec hongtu_build bash -c 'cd /tmp && \
 docker stop hongtu_build && docker commit hongtu_build hongtu-fastlio2:noetic
 ```
 
-### G1 上 clone 并编译 deepglint
+### 3d_nav_g1 (7.2GB)
+
+从 `ros:humble-ros-base` (ARM64) 手动构建：
 
 ```bash
-mkdir -p ~/g1_3d_nav
-cd ~/g1_3d_nav
-git clone https://github.com/deepglint/FAST_LIO_LOCALIZATION_HUMANOID.git deepglint_loc
+docker pull ros:humble-ros-base
+docker run -d --network host --name g1_3dnav_build ros:humble-ros-base sleep infinity
+docker exec g1_3dnav_build apt-get update
+docker exec g1_3dnav_build apt-get install -y libeigen3-dev libpcl-dev \
+    libc++-dev libc++abi-dev python3-colcon-common-extensions \
+    ros-humble-tf2 ros-humble-tf2-ros ros-humble-nav-msgs \
+    ros-humble-sensor-msgs ros-humble-geometry-msgs ros-humble-pcl-ros \
+    ros-humble-tf2-eigen ros-humble-tf2-geometry-msgs \
+    ros-humble-cv-bridge ros-humble-image-transport ros-humble-urdf \
+    ros-humble-rviz2 ros-humble-rmw-cyclonedds-cpp \
+    liblapacke-dev libyaml-cpp-dev git unzip
 
-# 启动容器
-~/g1_3d_nav/start_hongtu.sh
-docker exec -it hongtu_mapper bash
+# Livox-SDK2 + Open3D + deepglint Humble 分支源码（略，见 track1a/ 文档）
 
-# 容器内
-mkdir -p /root/g1_3d_nav/deepglint_ws/src
-cd /root/g1_3d_nav/deepglint_ws/src
-ln -sf ../../deepglint_loc/livox_ros_driver2 .
-ln -sf ../../deepglint_loc/FAST_LIO .
-touch open3d_loc/CATKIN_IGNORE  # 建图不需要定位模块
-ln -sf ../../deepglint_loc/open3d_loc .
-touch /root/g1_3d_nav/deepglint_ws/src/open3d_loc/CATKIN_IGNORE
-
-# 修复包名和依赖
-cd livox_ros_driver2
-[ ! -f package.xml ] && ln -sf package_ROS1.xml package.xml
-
-cd ../FAST_LIO
-sed -i 's|livox_ros_driver|livox_ros_driver2|g' CMakeLists.txt package.xml
-grep -rln "livox_ros_driver/" . | xargs -r sed -i 's|livox_ros_driver/|livox_ros_driver2/|g'
-grep -rln "livox_ros_driver::" . | xargs -r sed -i 's|livox_ros_driver::|livox_ros_driver2::|g'
-
-# 配置 MID360 IP
-sed -i 's/192.168.123.222/192.168.123.164/g' \
-    /root/g1_3d_nav/deepglint_ws/src/livox_ros_driver2/config/MID360_config.json
-
-# 编译
-source /opt/ros/noetic/setup.bash
-cd /root/g1_3d_nav/deepglint_ws
-catkin_make -DROS_EDITION=ROS1 -j1
-make -C build fast_lio_generate_messages_cpp -j1  # 先生成消息头
-make -C build -j1
+docker stop g1_3dnav_build && docker commit g1_3dnav_build 3d_nav_g1
 ```
 
-### 建图
+### 关键编译修复
 
-```bash
-# G1 容器内 — 一键启动驱动 + FAST-LIO（无 RViz）
-# PCD 已通过 mid360_g1.yaml 预配置为退出时自动保存
-source /opt/ros/noetic/setup.bash
-source /root/g1_3d_nav/deepglint_ws/devel/setup.bash
-roslaunch fast_lio mapping_g1_full.launch rviz:=false
-```
-
-**Ctrl-C 停止时自动保存全部点云为一个 PCD**（`pcd_save_en: true`, `interval: -1`）。
-保存在 `deepglint_ws/src/FAST_LIO/PCD/scans.pcd`。
-
-配置项在 `deepglint_ws/src/FAST_LIO/config/mid360_g1.yaml`:
-```yaml
-pcd_save:
-    pcd_save_en: true    # 改为 true
-    interval: -1         # -1 = 所有帧合并为一个 PCD，退出时自动保存
-```
-
-### Leo 笔记本远程 RViz
-
-```bash
-# Leo 本机
-xhost +local:
-docker run -d --rm --network host --name g1_rviz \
-    -e DISPLAY=:1 \
-    -e ROS_MASTER_URI=http://<G1_WiFi_IP>:11311 \
-    -v /tmp/.X11-unix:/tmp/.X11-unix:ro \
-    -v $HOME/.Xauthority:/root/.Xauthority:ro \
-    -e XAUTHORITY=/root/.Xauthority \
-    ros:noetic-ros-base sleep infinity
-
-docker exec g1_rviz bash -c 'apt-get update -qq && apt-get install -y -qq ros-noetic-rviz'
-
-# 从 G1 拷贝官方 rviz 配置
-ssh unitree@<G1_IP> "docker exec hongtu_mapper cat /root/g1_3d_nav/deepglint_ws/src/FAST_LIO/rviz_cfg/loam_livox.rviz" \
-    | docker exec -i g1_rviz bash -c 'cat > /root/.rviz/loam_livox.rviz'
-
-# 启动 RViz
-docker exec g1_rviz bash -c 'source /opt/ros/noetic/setup.bash && rviz -d /root/.rviz/loam_livox.rviz'
-```
-
-### 建图流程
-
-1. G1 站稳不动，启动建图，前 10 秒静止（IMU 初始化）
-2. 遥控 G1 缓慢走一圈，走闭环路径触发回环检测
-3. PCD 自动保存到 `PCD/` 目录
-4. 复制 PCD 到 `/root/g1_3d_nav/maps/` 供后续 Track 使用
+| 问题 | 解决 |
+|------|------|
+| OOM (ARM64 8GB) | `-j1` 单核编译 |
+| `HUMBLE_ROS` 未设 | `--cmake-args -DHUMBLE_ROS=humble` |
+| `liblapacke.so` 缺失 | `apt install liblapacke-dev` |
+| numpy 污染 colcon | `touch /usr/lib/python3/numpy/COLCON_IGNORE` |
+| `CATKIN_IGNORE` 从 ROS1 污染 | 用 `git archive` 干净导出 |
+| LiDAR topic 不匹配 | FAST-LIO config 用 `/livox/lidar` |
+| PCD 路径 | `open3d_loc_g1.launch.py` 指向 `/root/3d_nav_g1/maps/scans.pcd` |
 
 ## 硬件
 
@@ -171,43 +178,17 @@ docker exec g1_rviz bash -c 'source /opt/ros/noetic/setup.bash && rviz -d /root/
 | LiDAR | Livox MID360 (倒装) | 192.168.123.120 |
 | 深度相机 | Intel D435i | — |
 
-## Track 1b: ROS 2 重定位
+## 相关仓库
 
-### 镜像 `3d_nav_g1` (7.2GB)
-
-```
-/root/3d_nav_g1/
-├── deps/open3d141/                    ← Open3D 1.4.1 (ARM64)
-├── livox_ws/                          ← livox_ros_driver2 (驱动)
-│   └── install/
-├── g1_ws/                             ← 定位 workspace
-│   └── install/
-│       ├── fast_lio/fastlio_mapping   ← FAST-LIO2 里程计
-│       └── open3d_loc/                ← ICP 全局重定位
-├── maps/scans.pcd                     ← Track 1a 地图
-├── start.sh                           ← 一键启动定位
-└── start_driver.sh                    ← 启动 MID360 驱动
-```
-
-### 关键编译修复
-
-| 问题 | 解决 |
-|------|------|
-| `CATKIN_IGNORE` 污染 | 从宿主机 `git archive` 干净导出 |
-| `HUMBLE_ROS` 未设 | `--cmake-args -DHUMBLE_ROS=humble` |
-| `liblapacke.so` 缺失 | `apt install liblapacke-dev` |
-| numpy colcon 污染 | `touch /usr/lib/python3/numpy/COLCON_IGNORE` |
-| livox 双 workspace | 驱动独立 `livox_ws`，先编译先 source |
-| Open3D 预编译 | Baidu 网盘 `open3d141_arm.zip` |
-
-- [deepglint FAST_LIO_LOCALIZATION_HUMANOID](https://github.com/deepglint/FAST_LIO_LOCALIZATION_HUMANOID) — 建图驱动 + 运行时定位
-- [HongTu (HongTu FAST-LIO2)](https://github.com/yuanqizhiti/HongTu) — 原始参考（已被 deepglint 替代）
-- [jie_3d_nav](https://github.com/6-robot/jie_3d_nav) — 3D OctoMap 导航
-- [g1pilot](https://github.com/hucebot/g1pilot) — G1 控制器
+- [deepglint FAST_LIO_LOCALIZATION_HUMANOID](https://github.com/deepglint/FAST_LIO_LOCALIZATION_HUMANOID)
+- [jie_3d_nav](https://github.com/6-robot/jie_3d_nav)
+- [g1pilot](https://github.com/hucebot/g1pilot)
 
 ## 版本
 
 | 版本 | 日期 | 内容 |
 |------|------|------|
-| v1.1.0 | 2026-05-12 | deepglint 驱动替代 HongTu, lidar2base_rpy 修正, 远程 RViz, PCD 参数保存 |
-| v1.0.0 | 2026-05-11 | 初始架构文档 + HongTu 离线建图容器 |
+| v2.1.0 | 2026-05-13 | 全流程操作说明，start_mapping.sh |
+| v2.0.0 | 2026-05-13 | Track 1b ROS 2 容器编译完成 |
+| v1.1.0 | 2026-05-12 | deepglint 驱动替代 HongTu，远程 RViz |
+| v1.0.0 | 2026-05-11 | 初始架构 + Track 1a |
