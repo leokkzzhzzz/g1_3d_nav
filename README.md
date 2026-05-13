@@ -1,6 +1,15 @@
-# G1 3D Navigation — v1.1.0
+# G1 3D Navigation — v2.0.0
 
 Unitree G1 人形机器人 3D OctoMap 导航系统部署。
+
+## 当前进度
+
+| Track | 内容 | 状态 |
+|-------|------|------|
+| **1a** | deepglint ROS 1 离线建图 | ✅ scans.pcd (129MB, 419万点) |
+| **1b** | deepglint ROS 2 重定位 | ✅ 编译完成, ⬜ 测试 |
+| 2 | jie_3d_nav OctoMap 导航 | ⬜ |
+| 3 | g1pilot 控制器 | ⬜ |
 
 ## 架构
 
@@ -162,7 +171,34 @@ docker exec g1_rviz bash -c 'source /opt/ros/noetic/setup.bash && rviz -d /root/
 | LiDAR | Livox MID360 (倒装) | 192.168.123.120 |
 | 深度相机 | Intel D435i | — |
 
-## 相关仓库
+## Track 1b: ROS 2 重定位
+
+### 镜像 `3d_nav_g1` (7.2GB)
+
+```
+/root/3d_nav_g1/
+├── deps/open3d141/                    ← Open3D 1.4.1 (ARM64)
+├── livox_ws/                          ← livox_ros_driver2 (驱动)
+│   └── install/
+├── g1_ws/                             ← 定位 workspace
+│   └── install/
+│       ├── fast_lio/fastlio_mapping   ← FAST-LIO2 里程计
+│       └── open3d_loc/                ← ICP 全局重定位
+├── maps/scans.pcd                     ← Track 1a 地图
+├── start.sh                           ← 一键启动定位
+└── start_driver.sh                    ← 启动 MID360 驱动
+```
+
+### 关键编译修复
+
+| 问题 | 解决 |
+|------|------|
+| `CATKIN_IGNORE` 污染 | 从宿主机 `git archive` 干净导出 |
+| `HUMBLE_ROS` 未设 | `--cmake-args -DHUMBLE_ROS=humble` |
+| `liblapacke.so` 缺失 | `apt install liblapacke-dev` |
+| numpy colcon 污染 | `touch /usr/lib/python3/numpy/COLCON_IGNORE` |
+| livox 双 workspace | 驱动独立 `livox_ws`，先编译先 source |
+| Open3D 预编译 | Baidu 网盘 `open3d141_arm.zip` |
 
 - [deepglint FAST_LIO_LOCALIZATION_HUMANOID](https://github.com/deepglint/FAST_LIO_LOCALIZATION_HUMANOID) — 建图驱动 + 运行时定位
 - [HongTu (HongTu FAST-LIO2)](https://github.com/yuanqizhiti/HongTu) — 原始参考（已被 deepglint 替代）

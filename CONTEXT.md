@@ -43,52 +43,44 @@ _Avoid_: 单独 .bt/.ot 文件, 2D PGM/YAML 地图
 ROS 1 容器只做离线建图（HongTu），ROS 2 容器做全部运行时（定位 + OctoMap + 规划 + 控制）。两容器之间唯一接口是 PCD 文件。
 _Avoid_: ROS1/ROS2 bridge 运行时耦合, 混合工作区
 
-## Architecture
+## Architecture (Current)
 
 ```
-┌─ ROS 1 容器 (离线, 一次性) ────────────┐
-│ HongTu fastlio2 (含 GTSAM 回环)       │
-│ MID360 → mapping → 保存 map.pcd      │
-└────────────────────────────────────────┘
+┌─ ROS 1 容器 (离线建图, 一次性) ───────────┐
+│ deepglint livox_ros_driver2 (roll:180)    │
+│ fast_lio_mapping                          │
+│   → 产出 scans.pcd (129MB, 419万点)       │
+│ pcd_save_en: true, interval: -1           │
+│   → Ctrl-C 自动保存                       │
+└───────────────────────────────────────────┘
               │
-              ▼  map.pcd (唯一接口)
-┌─ ROS 2 容器 (运行时) ──────────────────┐
-│                                        │
-│ deepglint livox_ros_driver2 (roll:180) │
-│   → FAST-LIO2 (odometry)              │
-│   → open3d_loc (重定位, 加载 map.pcd)  │
-│        │                               │
-│        ├── /localization_3d            │
-│        ├── TF map→odom→base_footprint  │
-│        │                               │
-│   octomap_server → /octomap            │
-│        │                               │
-│   jie_3d_nav                           │
-│   ├── jie_path_node (3D A* 规划)       │
-│   ├── map_package_manager (地图管理)    │
-│   └── Web UI (可视化 + 起终点选择)      │
-│        │                               │
-│        ▼  /planned_path                │
-│   g1pilot (nav2point + loco_client)    │
-│        │                               │
-│        ▼  LocoClient::SetVelocity()    │
-│   Unitree G1                           │
-└────────────────────────────────────────┘
-```
+              ▼  scans.pcd
+┌─ ROS 2 容器 (运行时: 3d_nav_g1) ──────────┐
+│ ✅ livox_ros_driver2 (驱动, HUMBLE_ROS)    │
+│ ✅ fast_lio (FAST-LIO2 odometry)          │
+│ ✅ open3d_loc (ICP 全局重定位)             │
+│        │                                   │
+│        ├── /localization_3d                │
+│        ├── TF map→odom→base_footprint      │
+│        │                                   │
+│ ⬜ octomap_server → /octomap   (Track 2)  │
+│ ⬜ jie_3d_nav + Web UI        (Track 2)  │
+│ ⬜ g1pilot 控制               (Track 3)  │
+└───────────────────────────────────────────┘
 
 ## Architecture Decisions
 
-### ADR-001: 离线建图 — HongTu ROS 1 独立容器
+### ADR-001: 离线建图 — deepglint ROS 1 独立容器
 
-使用 HongTu FAST-LIO2（ROS 1 Noetic，含 GTSAM 回环）在独立容器中完成一次性离线建图，产出 map.pcd。
-**Why**: HongTu 原版含 GTSAM 回环优化，建图质量优于无回环的 ROS 2 移植版。离线运行避免了 ROS1/ROS2 运行时桥接的复杂性。建图只需运行一次，无需长期维护 ROS 1 容器。
-**How to apply**: 在 G1 上启动 ROS 1 容器 → 运行 HongTu fastlio2 mapping.launch → 遥控扫描环境 → 保存 PCD → 关闭容器。PCD 文件挂载到宿主机目录供 ROS 2 容器读取。
+使用 deepglint FAST_LIO_LOCALIZATION_HUMANOID（ROS 1 main 分支）在独立容器中完成一次性离线建图，产出 scans.pcd。
+**Why**: deepglint 修改版 livox_ros_driver2 同时旋转点云和 IMU 外参（roll=180°），解决了 G1 MID360 倒装问题。pcd_save_en:true + interval:-1 实现 Ctrl-C 自动保存全部点云。
+**How to apply**: G1 上启动 ROS 1 容器 → roslaunch fast_lio mapping_g1_full.launch rviz:=false → 遥控扫描 → Ctrl-C 自动保存 scans.pcd。
 
-### ADR-002: 运行时定位 — deepglint FAST_LIO_LOCALIZATION_HUMANOID
+### ADR-002: 运行时定位 — deepglint ROS 2 Humble 容器
 
-选择 deepglint 的 G1 定制版做重定位 + odometry。
-**Why**: G1 MID360 倒装需要 IMU 外参修正，原版 livox_ros_driver2 不支持；deepglint 已在真实 G1 和 GO2 上验证。open3d_loc 通过 ICP 将当前扫描匹配到离线 PCD，实现全局重定位。
-**How to apply**: ROS 2 容器中运行 deepglint 修改的 livox_ros_driver2（roll=180）+ FAST-LIO2（odometry）+ open3d_loc（加载离线 PCD 做 ICP 重定位）。
+选择 deepglint 的 Humble 分支，在独立 ROS 2 容器 `3d_nav_g1` 中编译三件套。
+**Why**: 与后续 Track 2 (jie_3d_nav) 和 Track 3 (g1pilot) 统一 ROS 2 Humble 环境，避免 ROS1/ROS2 桥接。open3d_loc 通过 ICP 将当前扫描匹配到离线 PCD，实现全局重定位。
+**How to apply**: 容器内置 `/root/3d_nav_g1/start.sh` 一键启动。需先启动 livox 驱动（start_driver.sh），再启动定位。
 
 ### ADR-003: 地图组织 — 单一大 OctoMap
 
@@ -119,11 +111,11 @@ jie_3d_nav 和 deepglint 在 G1 实机构建独立 ROS 2 colcon workspace。Hong
 
 ## Deployment Tracks
 
-| Track | Scope | Runtime | Dependencies |
-|-------|-------|---------|-------------|
-| Track 1a | HongTu ROS 1 离线建图 → PCD | ROS 1 容器（一次性）| 实机 MID360 |
-| Track 1b | deepglint ROS 2 定位（odometry + 重定位）| ROS 2 容器（运行时）| Track 1a 产出的 PCD |
-| Track 2 | jie_3d_nav 地图导入 + 规划 + Web | ROS 2 容器（运行时）| Track 1a 产出的 PCD |
-| Track 3 | g1pilot 控制器接入 | ROS 2 容器（运行时）| Track 1b + Track 2 |
+| Track | Scope | Runtime | Status |
+|-------|-------|---------|--------|
+| Track 1a | deepglint ROS 1 离线建图 → scans.pcd | ROS 1 容器 `hongtu-fastlio2:noetic` | ✅ 完成 |
+| Track 1b | deepglint ROS 2 重定位 | ROS 2 容器 `3d_nav_g1` | ✅ 编译完成, ⬜ 冒烟测试 |
+| Track 2 | jie_3d_nav OctoMap + 规划 + Web | ROS 2 容器 `3d_nav_g1` | ⬜ 未开始 |
+| Track 3 | g1pilot 控制器接入 | ROS 2 容器 `3d_nav_g1` | ⬜ 未开始 |
 
-Track 1a、Track 1b、Track 2 三者独立，可并行推进。Track 3 依赖 Track 1b 和 Track 2。
+Track 1a → 产出 scans.pcd → Track 1b + Track 2 并行 → Track 3。
