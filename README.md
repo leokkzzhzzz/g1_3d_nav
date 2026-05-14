@@ -100,21 +100,47 @@ docker exec -it hongtu_mapper bash -c 'source /opt/ros/noetic/setup.bash && sour
 
 > 等约 40 秒，看到日志 `initialize finished` 即加载 129MB PCD 完成。
 
-**G1 终端 4（可选）— Foxglove Bridge：**
+### Leo 远程 RViz
 
-```bash
-docker exec -it hongtu_mapper bash -c 'source /opt/ros/noetic/setup.bash && source /root/deepglint_ws/devel/setup.bash && roslaunch foxglove_bridge foxglove_bridge.launch port:=9090'
+#### 原理
+
+G1 上所有 ROS 节点运行在一个容器内（`hongtu_mapper`），使用 `--network host` 暴露所有端口。Leo 本地开一个 ROS 1 容器，`ROS_MASTER_URI` 指向 G1 的 roscore。**数据走 WiFi（TCPROS），渲染走 Leo Intel GPU**——比 X11 转发帧率大幅提升。
+
+```
+G1 hongtu_mapper                              Leo leo_rviz
+┌──────────────────────────┐                 ┌────────────────────────┐
+│ roscore :11311           │   TCPROS (WiFi) │ ROS_MASTER_URI=G1:11311 │
+│ /livox/lidar             │ ◄────────────── │ /etc/hosts: unitree-g1-nx │
+│ /Odometry_loc            │   数据流          │ rviz -d loc_map_cur.rviz │
+│ /map (129MB PCD)         │                 │ → Leo GPU 本地渲染      │
+│ /Laser_map_1             │                 └────────────────────────┘
+└──────────────────────────┘
 ```
 
-**Leo 远程 RViz（SSH X11 转发）：**
+#### 一次性准备（Leo）
 
 ```bash
-ssh -X unitree@192.168.100.30 'COOKIE=$(xauth list $DISPLAY); docker exec hongtu_mapper bash -c "xauth add $COOKIE"; docker exec -e DISPLAY=$DISPLAY hongtu_mapper bash -c "source /opt/ros/noetic/setup.bash && source /root/deepglint_ws/devel/setup.bash && rviz -d /root/deepglint_ws/src/open3d_loc/rviz_cfg/loc_map_cur.rviz"'
+# 创建 ROS 1 rviz 容器
+docker run -d --name leo_rviz \
+    -e DISPLAY=:1 \
+    -e ROS_MASTER_URI=http://192.168.100.30:11311 \
+    -v /tmp/.X11-unix:/tmp/.X11-unix:ro \
+    -v /home/leo/g1_3d_nav_deploy/configs:/root/configs:ro \
+    ros:noetic-ros-base sleep infinity
+
+# 安装 rviz + 添加 G1 hostname 解析（关键）
+docker exec leo_rviz apt-get update -qq
+docker exec leo_rviz apt-get install -y -qq ros-noetic-rviz
+docker exec leo_rviz bash -c 'echo "192.168.100.30 unitree-g1-nx" >> /etc/hosts'
 ```
 
-**Leo Foxglove Studio（比 X11 流畅，浏览器本地渲染）：**
+> **为什么加 `/etc/hosts`**：ROS publisher 广播主机名 `unitree-g1-nx`，Leo 容器 DNS 无法解析 → 数据连不上。加 hosts 后 TCPROS 直连。
 
-浏览器 https://studio.foxglove.dev → Rosbridge → `ws://192.168.100.30:9090` → 3D panel → PointCloud2 `/map` + `/Laser_map_1`
+#### 启动 RViz
+
+```bash
+docker exec leo_rviz bash -c 'source /opt/ros/noetic/setup.bash && rviz -d /root/configs/loc_map_cur_leo.rviz'
+```
 
 ### 重定位操作
 
