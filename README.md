@@ -49,11 +49,24 @@ G1 (Jetson Orin NX)
 └──────────────────────────────────────────────┘
 ```
 
-## 快速开始
+## ROS 1 版本
+
+### 架构
+
+所有进程在 G1 的 `hongtu_mapper` 容器内运行（ROS 1 Noetic, network host）：
+
+```
+livox_ros_driver2 (MID360 驱动, 10Hz)
+  → /livox/lidar (CustomMsg)
+fast_lio (FAST-LIO2 里程计)
+  → /Odometry_loc, /Laser_map_1, /cloud_registered_body_1
+open3d_loc (ICP 全局重定位, 加载预建 PCD)
+  → /map, /localization_3d, /localization_3d_confidence
+foxglove_bridge (WebSocket ws://:9090)
+  → Foxglove Studio 本地渲染（比 X11 流畅）
+```
 
 ### 前提：容器已运行
-
-G1 上 `hongtu_mapper` 容器应该在运行（设备重启后重建）：
 
 ```bash
 docker run -d --network host --name hongtu_mapper \
@@ -65,16 +78,7 @@ docker run -d --network host --name hongtu_mapper \
     hongtu-fastlio2:noetic sleep infinity
 ```
 
-### Track 1a: 离线建图
-
-```bash
-docker exec -it hongtu_mapper bash -c 'source /opt/ros/noetic/setup.bash && source /root/deepglint_ws/devel/setup.bash && roslaunch livox_ros_driver2 msg_MID360.launch'
-# 终端 2
-docker exec -it hongtu_mapper bash -c 'source /opt/ros/noetic/setup.bash && source /root/deepglint_ws/devel/setup.bash && roslaunch fast_lio mapping_mid360_g1.launch'
-# Ctrl-C 后 maps/ 目录下自动保存 scans.ply
-```
-
-### Track 1b: 重定位 + 远程 RViz
+### 完整操作流程
 
 **G1 终端 1 — MID360 驱动：**
 
@@ -94,20 +98,36 @@ docker exec -it hongtu_mapper bash -c 'source /opt/ros/noetic/setup.bash && sour
 docker exec -it hongtu_mapper bash -c 'source /opt/ros/noetic/setup.bash && source /root/deepglint_ws/devel/setup.bash && roslaunch open3d_loc open3d_loc_g1.launch'
 ```
 
-**Leo — 远程 RViz（SSH X11 转发）：**
+> 等约 40 秒，看到日志 `initialize finished` 即加载 129MB PCD 完成。
+
+**G1 终端 4（可选）— Foxglove Bridge：**
+
+```bash
+docker exec -it hongtu_mapper bash -c 'source /opt/ros/noetic/setup.bash && source /root/deepglint_ws/devel/setup.bash && roslaunch foxglove_bridge foxglove_bridge.launch port:=9090'
+```
+
+**Leo 远程 RViz（SSH X11 转发）：**
 
 ```bash
 ssh -X unitree@192.168.100.30 'COOKIE=$(xauth list $DISPLAY); docker exec hongtu_mapper bash -c "xauth add $COOKIE"; docker exec -e DISPLAY=$DISPLAY hongtu_mapper bash -c "source /opt/ros/noetic/setup.bash && source /root/deepglint_ws/devel/setup.bash && rviz -d /root/deepglint_ws/src/open3d_loc/rviz_cfg/loc_map_cur.rviz"'
 ```
 
-**Leo — Foxglove Studio（备选，比 X11 流畅）：**
+**Leo Foxglove Studio（比 X11 流畅，浏览器本地渲染）：**
+
+浏览器 https://studio.foxglove.dev → Rosbridge → `ws://192.168.100.30:9090` → 3D panel → PointCloud2 `/map` + `/Laser_map_1`
+
+### 重定位操作
+
+1. RViz 中点击 **2D Pose Estimate**（绿色箭头）
+2. 在地图点云上点击 G1 当前位置，拖动箭头对准前进方向
+3. ICP 自动匹配，`/localization_3d_confidence` 输出置信度
+
+### 验证定位
 
 ```bash
-# G1 启动 foxglove_bridge（需先安装 ros-noetic-foxglove-bridge）
-docker exec -it hongtu_mapper bash -c 'source /opt/ros/noetic/setup.bash && source /root/deepglint_ws/devel/setup.bash && roslaunch foxglove_bridge foxglove_bridge.launch port:=9090'
+docker exec hongtu_mapper bash -c 'source /opt/ros/noetic/setup.bash && source /root/deepglint_ws/devel/setup.bash && timeout 5 rostopic echo /localization_3d_confidence -n 1'
+# > 0.7 → 锁定；> 0.9 → 高精度
 ```
-
-浏览器打开 https://studio.foxglove.dev → Rosbridge → `ws://192.168.100.30:9090` → 添加 3D 面板 → PointCloud2 `/map` + `/Laser_map_1`
 
 ### 重定位操作
 
