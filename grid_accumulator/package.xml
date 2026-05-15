@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>grid_accumulator</name>
+  <version>0.1.0</version>
+  <description>Accumulate body-frame point clouds into a global 2D occupancy grid</description>
+  <maintainer email="leo@todo">leo</maintainer>
+  <license>BSD</license>
+  <buildtool_depend>catkin</buildtool_depend>
+  <depend>roscpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf2_sensor_msgs</depend>
+  <depend>std_msgs</depend>
+</package>
