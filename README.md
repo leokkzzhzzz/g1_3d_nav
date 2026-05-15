@@ -6,7 +6,7 @@ Unitree G1 人形机器人 3D 导航部署。**当前完成离线建图 + ROS 1 
 
 | Track | 内容 | 状态 |
 |-------|------|------|
-| 1a | ROS 1 离线建图 → scans.ply | ✅ 完成 |
+| 1a | ROS 1 离线建图 → scans.pcd + 2D 栅格地图 | ✅ 完成 |
 | 1b | ROS 1 重定位 + 远程 RViz (X11) | ✅ 完成 |
 | 2 | jie_3d_nav OctoMap 导航 | ⬜ |
 | 3 | g1pilot 控制器 | ⬜ |
@@ -19,6 +19,7 @@ Unitree G1 人形机器人 3D 导航部署。**当前完成离线建图 + ROS 1 
 | 2 | **补齐 ROS 2 版功能** — `loc_map_cur.rviz` → RViz2 兼容格式；补充 `pointcloud_transformer_node` 可视化 topic；修复 `map` TF 帧缺失 | 1b |
 | 3 | **定位精度量化评估** — 在多个已知位置记录 `/localization_3d` vs 真值，计算 ATE/RPE | 1b |
 | 4 | **ROS 1/2 双轨长期策略** — Track 1a(建图) 保留 ROS 1；Track 1b(定位) 主用 ROS 1，逐步迁移至 ROS 2；Track 2/3 用 ROS 2 | 全部 |
+| 5 | **2D 地图修复** — PGM 行序翻转 (grid row 0=PGM bottom)，建图时 `_map_frame:=camera_init` | 1a |
 
 ## ROS 1 vs ROS 2 分析
 
@@ -78,7 +79,7 @@ docker run -d --network host --name hongtu_mapper \
     hongtu-fastlio2:noetic sleep infinity
 ```
 
-### 完整操作流程
+### Track 1a: 离线建图 + 2D 栅格生成
 
 **G1 终端 1 — MID360 驱动：**
 
@@ -86,11 +87,37 @@ docker run -d --network host --name hongtu_mapper \
 docker exec -it hongtu_mapper bash -c 'source /opt/ros/noetic/setup.bash && source /root/deepglint_ws/devel/setup.bash && roslaunch livox_ros_driver2 msg_MID360.launch'
 ```
 
-**G1 终端 2 — FAST-LIO（不开 RViz）：**
+**G1 终端 2 — FAST-LIO 建图（不开 RViz）：**
 
 ```bash
 docker exec -it hongtu_mapper bash -c 'source /opt/ros/noetic/setup.bash && source /root/deepglint_ws/devel/setup.bash && roslaunch fast_lio mapping_mid360_g1.launch rviz:=false'
 ```
+
+**G1 终端 3 — 2D 栅格累积：**
+
+```bash
+docker exec -it hongtu_mapper bash -c 'source /opt/ros/noetic/setup.bash && source /root/deepglint_ws/devel/setup.bash && /root/deepglint_ws/devel/lib/grid_accumulator/ground_cloud_accumulator _cloud_in:=/cloud_registered_body_1 _map_frame:=camera_init _ground_z_thresh:=0.15 _obstacle_z_thresh:=0.25 _publish_rate:=2.0 _auto_resize:=true _grid_out:=/accumulated_grid'
+```
+
+> 建图时 map 帧为 `camera_init`（FAST-LIO 世界坐标系），必须用 `_map_frame:=camera_init`。
+
+**Ctrl-C 三个终端，产物：**
+- `scans.pcd` — 3D 全局点云 (FAST_LIO/PCD/)
+- `accumulated_grid.pgm + yaml` — 2D 栅格地图 (maps/)
+
+**Leo 建图监控：**
+```bash
+docker exec leo_rviz bash -c 'source /opt/ros/noetic/setup.bash && rviz -d /root/loam_livox.rviz'
+```
+Fixed Frame → `camera_init`，Add → `/accumulated_grid` → Map。
+
+---
+
+### Track 1b: 重定位 + 远程 RViz
+
+**G1 终端 1 — MID360 驱动：** 同上
+
+**G1 终端 2 — FAST-LIO（不开 RViz）：** 同上
 
 **G1 终端 3 — 3D 定位：**
 
@@ -98,7 +125,7 @@ docker exec -it hongtu_mapper bash -c 'source /opt/ros/noetic/setup.bash && sour
 docker exec -it hongtu_mapper bash -c 'source /opt/ros/noetic/setup.bash && source /root/deepglint_ws/devel/setup.bash && roslaunch open3d_loc open3d_loc_g1.launch'
 ```
 
-> 等约 40 秒，看到日志 `initialize finished` 即加载 129MB PCD 完成。
+> 等约 40 秒，看到日志 `initialize finished` 即加载 PCD 完成。
 
 ### Leo 远程 RViz
 
