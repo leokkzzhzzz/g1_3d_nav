@@ -7,9 +7,9 @@ Unitree G1 人形机器人 3D 导航部署。**当前完成离线建图 + ROS 1 
 | Track | 内容 | 状态 |
 |-------|------|------|
 | 1a | ROS 1 离线建图 → scans.pcd + 2D 栅格地图 | ✅ 完成 |
-| 1b | ROS 1 重定位 + 远程 RViz (X11) | ✅ 完成 |
-| 2 | jie_3d_nav OctoMap 导航 | ⬜ |
-| 3 | g1pilot 控制器 | ⬜ |
+| 1b | ROS 1 重定位 + 远程 RViz + move_base 导航 | ✅ 完成 |
+| 2 | 导航控制闭环调试 | ⬜ |
+| 3 | G1 底盘 SDK2 控制 | ⬜ |
 
 ## 待办
 
@@ -113,19 +113,65 @@ Fixed Frame → `camera_init`，Add → `/accumulated_grid` → Map。
 
 ---
 
-### Track 1b: 重定位 + 远程 RViz
+### Track 1b: 重定位 + 导航 + 远程 RViz
 
-**G1 终端 1 — MID360 驱动：** 同上
+**G1 终端 1 — MID360 驱动：** 同 Track 1a 终端 1
 
-**G1 终端 2 — FAST-LIO（不开 RViz）：** 同上
+**G1 终端 2 — FAST-LIO（不开 RViz）：** 同 Track 1a 终端 2
 
-**G1 终端 3 — 3D 定位：**
+**G1 终端 3 — open3d_loc 定位：**
 
 ```bash
 docker exec -it hongtu_mapper bash -c 'source /opt/ros/noetic/setup.bash && source /root/deepglint_ws/devel/setup.bash && roslaunch open3d_loc open3d_loc_g1.launch'
 ```
 
-> 等约 40 秒，看到日志 `initialize finished` 即加载 PCD 完成。
+**G1 终端 4 — 导航栈启动（一键）：**
+
+```bash
+docker exec -it hongtu_mapper bash -c '
+source /opt/ros/noetic/setup.bash && source /root/deepglint_ws/devel/setup.bash
+
+# 2D 地图
+rosrun map_server map_server /root/maps/accumulated_grid.yaml map:=/map_2d &
+
+# 3D→2D 扫描
+rosrun pointcloud_to_laserscan pointcloud_to_laserscan_node \
+  cloud_in:=/cloud_registered_body_1 _min_height:=-1 _max_height:=0.15 _range_max:=100 &
+
+# move_base (GlobalPlanner + DWA)
+roslaunch xju_pnc move_base.launch odom_topic:=/Odometry_loc &
+
+# 里程计 relay (Odometry_loc → slam_odom)
+rosrun topic_tools relay /Odometry_loc /slam_odom &
+
+# velocity_smoother (cmd_vel → cmd_vel_smooth)
+rosparam set /raw_cmd_topic /cmd_vel
+rosparam set /cmd_topic /cmd_vel_smooth
+rosrun velocity_smoother_ema velocity_smoother_ema_node &
+
+# bridge_sender (ROS 1 → TCP :7777)
+python3 /tmp/bridge_sender.py &
+
+wait
+'
+```
+
+**G1 宿主机 — 桥接 + 底盘控制：**
+
+```bash
+pkill -9 python3 2>/dev/null
+rm -f /dev/shm/cyclonedds* /dev/shm/dds*
+nohup python3 /tmp/bridge_and_control.py > /tmp/bridge_control.log 2>&1 &
+# 检查: cat /tmp/bridge_control.log → "SDK2 ready" + "Bridge connected"
+```
+
+**Leo — RViz：**
+
+```bash
+docker exec leo_rviz bash -c 'source /opt/ros/noetic/setup.bash && rviz -d /root/maps/g1_navigation.rviz'
+```
+
+RViz 工具栏 → **2D Nav Goal** → 点目标位置 → 规划 + 控制。
 
 ### Leo 远程 RViz
 

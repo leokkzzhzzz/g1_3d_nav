@@ -12,7 +12,7 @@ import threading
 
 import rospy
 from nav_msgs.msg import Odometry
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, Twist
 from std_msgs.msg import Float32
 from sensor_msgs.msg import PointCloud2
 
@@ -58,6 +58,10 @@ def serialize_pose_stamped(msg):
     }
 
 
+
+def serialize_twist(msg):
+    return {"linear": {"x": msg.linear.x, "y": msg.linear.y, "z": msg.linear.z},
+            "angular": {"x": msg.angular.x, "y": msg.angular.y, "z": msg.angular.z}}
 def serialize_float32(msg):
     return {"data": msg.data}
 
@@ -86,6 +90,7 @@ SERIALIZERS = {
     "geometry_msgs/PoseStamped": serialize_pose_stamped,
     "std_msgs/Float32": serialize_float32,
     "sensor_msgs/PointCloud2": serialize_pointcloud2,
+    "geometry_msgs/Twist": serialize_twist,
 }
 
 # (ros_topic, ros_type, ros_class)
@@ -94,6 +99,7 @@ TOPICS = [
     ("/localization_3d", "geometry_msgs/PoseStamped", PoseStamped),
     ("/localization_3d_confidence", "std_msgs/Float32", Float32),
     ("/map", "sensor_msgs/PointCloud2", PointCloud2),
+    ("/cmd_vel_smooth", "geometry_msgs/Twist", Twist),
 ]
 
 
