@@ -275,6 +275,15 @@ docker exec hongtu_mapper bash -c 'source /opt/ros/noetic/setup.bash && source /
 | `hongtu-fastlio2:noetic` | Noetic | 5.7GB | Track 1a+1b ROS 1 全部 |
 | `3d_nav_g1` | Humble | 7.2GB | Track 2/3 (待用) |
 
+### 云端镜像 (Google Cloud Artifact Registry)
+
+```bash
+docker pull us-central1-docker.pkg.dev/dreamcontroltrain/g1-nav/3d_nav_g1:latest
+```
+
+- Registry: `us-central1-docker.pkg.dev/dreamcontroltrain/g1-nav/3d_nav_g1`
+- Size: 2.09GB (compressed)
+
 ## 硬件
 
 | 组件 | 型号 | IP |
@@ -294,6 +303,7 @@ docker exec hongtu_mapper bash -c 'source /opt/ros/noetic/setup.bash && source /
 
 | 版本 | 日期 | 内容 |
 |------|------|------|
+| v3.4.0 | 2026-05-15 | 导航全栈：move_base + DWA + velocity_smoother + bridge + SDK2 控制链, 镜像推送到 GCR |
 | v3.0.0 | 2026-05-14 | **切回 ROS 1 主方案** — open3d_loc 编译成功, loc_map_cur.rviz 官方可视化, 远程 X11 + Foxglove 双通道, 定位 conf=0.90 |
 | v2.2.0 | 2026-05-13 | ROS 2 DDS 远程 RViz 实验通过 (已废弃) |
 | v2.1.0 | 2026-05-13 | 全流程操作说明, start_mapping.sh |
