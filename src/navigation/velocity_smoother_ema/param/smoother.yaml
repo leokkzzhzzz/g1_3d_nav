@@ -1,0 +1,5 @@
+alpha_v: 0.2
+alpha_w: 0.2
+raw_cmd_topic: /cmd_vel
+cmd_topic: /cmd_vel_smooth
+cmd_rate: 30.0
