@@ -1,6 +1,5 @@
 *.pcd
 *.ply
-PCD/
 Log/
 build/
 devel/
