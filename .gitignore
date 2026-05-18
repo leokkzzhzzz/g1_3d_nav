@@ -1,0 +1,10 @@
+*.pcd
+*.ply
+PCD/
+Log/
+build/
+devel/
+install/
+*.pyc
+__pycache__/
+.DS_Store
