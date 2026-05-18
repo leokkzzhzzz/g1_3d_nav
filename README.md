@@ -1,6 +1,6 @@
-# G1 3D Navigation — v3.0.0
+# G1 3D Navigation — v3.5.0
 
-Unitree G1 人形机器人 3D 导航部署。**当前完成离线建图 + ROS 1 运行时重定位 + 远程 RViz。**
+Unitree G1 人形机器人 3D 导航部署。**离线建图 + 3D 重定位 + 2D 地图 + 导航 + 底盘控制。**
 
 ## 项目状态
 
@@ -8,18 +8,16 @@ Unitree G1 人形机器人 3D 导航部署。**当前完成离线建图 + ROS 1 
 |-------|------|------|
 | 1a | ROS 1 离线建图 → scans.pcd + 2D 栅格地图 | ✅ 完成 |
 | 1b | ROS 1 重定位 + 远程 RViz + move_base 导航 | ✅ 完成 |
-| 2 | 导航控制闭环调试 | ⬜ |
-| 3 | G1 底盘 SDK2 控制 | ⬜ |
+| 2 | TEB 替換為 G1 雙足控制器 | ⬜ |
+| 3 | 镜像 CI/CD | ⬜ |
 
 ## 待办
 
-| # | 任务 | Track |
-|---|------|-------|
-| 1 | **远程 RViz 优化** — X11 转发 129MB 点云太卡，改为本地渲染（foxglove_bridge 已就绪，Foxglove Studio 浏览器端渲染比 X11 流畅） | 1b |
-| 2 | **补齐 ROS 2 版功能** — `loc_map_cur.rviz` → RViz2 兼容格式；补充 `pointcloud_transformer_node` 可视化 topic；修复 `map` TF 帧缺失 | 1b |
-| 3 | **定位精度量化评估** — 在多个已知位置记录 `/localization_3d` vs 真值，计算 ATE/RPE | 1b |
-| 4 | **ROS 1/2 双轨长期策略** — Track 1a(建图) 保留 ROS 1；Track 1b(定位) 主用 ROS 1，逐步迁移至 ROS 2；Track 2/3 用 ROS 2 | 全部 |
-| 5 | **2D 地图修复** — PGM 行序翻转 (grid row 0=PGM bottom)，建图时 `_map_frame:=camera_init` | 1a |
+| # | 任务 |
+|---|------|
+| 1 | **TEB 替换** — TEB 为轮式机器人设计，G1 双足需要"先转向→再直走"简单控制器 |
+| 2 | **速度调参** — G1 最大步行 0.3-0.6 m/s，当前 TEB 参数需独立优化 |
+| 3 | **控制器固化** — `bridge_and_control.py` 已从 /tmp 移入 home，重启不丢 |
 
 ## ROS 1 vs ROS 2 分析
 
@@ -115,50 +113,40 @@ Fixed Frame → `camera_init`，Add → `/accumulated_grid` → Map。
 
 ### Track 1b: 重定位 + 导航 + 远程 RViz
 
-**G1 终端 1 — MID360 驱动：** 同 Track 1a 终端 1
+#### 一键启动
 
-**G1 终端 2 — FAST-LIO（不开 RViz）：** 同 Track 1a 终端 2
-
-**G1 终端 3 — open3d_loc 定位：**
-
+**G1 终端1 — 全栈导航：**
 ```bash
-docker exec -it hongtu_mapper bash -c 'source /opt/ros/noetic/setup.bash && source /root/deepglint_ws/devel/setup.bash && roslaunch open3d_loc open3d_loc_g1.launch'
+docker start hongtu_mapper && bash start_nav.sh
 ```
 
-**G1 终端 4 — 导航栈启动（一键）：**
-
+**G1 终端2 — 底盘控制：**
 ```bash
-docker exec -it hongtu_mapper bash -c '
-source /opt/ros/noetic/setup.bash && source /root/deepglint_ws/devel/setup.bash
-
-# 2D 地图
-rosrun map_server map_server /root/maps/accumulated_grid.yaml map:=/map_2d &
-
-# 3D→2D 扫描
-rosrun pointcloud_to_laserscan pointcloud_to_laserscan_node \
-  cloud_in:=/cloud_registered_body_1 _min_height:=-1 _max_height:=0.15 _range_max:=100 &
-
-# move_base (GlobalPlanner + DWA)
-roslaunch xju_pnc move_base.launch odom_topic:=/Odometry_loc &
-
-# 里程计 relay (Odometry_loc → slam_odom)
-rosrun topic_tools relay /Odometry_loc /slam_odom &
-
-# velocity_smoother (cmd_vel → cmd_vel_smooth)
-rosparam set /raw_cmd_topic /cmd_vel
-rosparam set /cmd_topic /cmd_vel_smooth
-rosrun velocity_smoother_ema velocity_smoother_ema_node &
-
-# bridge_sender (ROS 1 → TCP :7777)
-python3 /tmp/bridge_sender.py &
-
-wait
-'
+bash start_nav_host.sh
 ```
 
-**G1 宿主机 — 桥接 + 底盘控制：**
+**Leo — RViz：**
+```bash
+docker exec leo_rviz bash -c 'source /opt/ros/noetic/setup.bash && rviz -d /root/maps/g1_navigation.rviz'
+```
+
+RViz 工具栏 → **2D Nav Goal** → 点目标位置 → 规划 + G1 运动。
+
+#### 指令说明
+
+`start_nav.sh` 按顺序启动：roscore → LiDAR驱动 → FAST-LIO → open3d_loc → map_server → pointcloud_to_laserscan → move_base(TEB) → velocity_smoother → bridge_sender
+
+`start_nav_host.sh` 启动 TCP→SDK2 桥接控制器（`bridge_and_control.py`）。
+
+#### 停止
 
 ```bash
+# 容器
+docker stop hongtu_mapper
+
+# 宿主控制
+pkill -9 -f bridge_and_control
+```
 pkill -9 python3 2>/dev/null
 rm -f /dev/shm/cyclonedds* /dev/shm/dds*
 nohup python3 /tmp/bridge_and_control.py > /tmp/bridge_control.log 2>&1 &
@@ -275,14 +263,26 @@ docker exec hongtu_mapper bash -c 'source /opt/ros/noetic/setup.bash && source /
 | `hongtu-fastlio2:noetic` | Noetic | 5.7GB | Track 1a+1b ROS 1 全部 |
 | `3d_nav_g1` | Humble | 7.2GB | Track 2/3 (待用) |
 
-### 云端镜像 (Google Cloud Artifact Registry)
+### 拉取镜像 (Google Cloud Artifact Registry)
 
 ```bash
+# ROS 1 全栈镜像（建图+定位+导航）
+docker pull us-central1-docker.pkg.dev/dreamcontroltrain/g1-nav/hongtu-fastlio2:noetic
+
+# ROS 2 镜像（待用）
 docker pull us-central1-docker.pkg.dev/dreamcontroltrain/g1-nav/3d_nav_g1:latest
 ```
 
-- Registry: `us-central1-docker.pkg.dev/dreamcontroltrain/g1-nav/3d_nav_g1`
-- Size: 2.09GB (compressed)
+### 创建 hongtu_mapper 容器
+
+```bash
+docker run -d --network host --name hongtu_mapper \
+    -e DISPLAY=:0 \
+    -v /tmp/.X11-unix:/tmp/.X11-unix:ro \
+    -v ~/g1_3d_nav/deepglint_ws:/root/deepglint_ws \
+    -v ~/g1_3d_nav/deepglint_loc:/root/deepglint_loc \
+    -v ~/g1_3d_nav/maps:/root/maps \
+    hongtu-fastlio2:noetic sleep infinity
 
 ## 硬件
 
