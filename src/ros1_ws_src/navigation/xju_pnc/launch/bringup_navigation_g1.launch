@@ -1,0 +1,36 @@
+<launch>
+  <!-- G1 Navigation Bringup: 2D map + move_base + velocity_smoother -->
+  <!-- Requires: localization (FAST-LIO + open3d_loc) already running -->
+
+  <!-- 2D Map Server -->
+  <node name="map_server" pkg="map_server" type="map_server"
+        args="/root/maps/accumulated_grid.yaml">
+    <param name="frame_id" value="map"/>
+  </node>
+
+  <!-- PointCloud → LaserScan (for dynamic obstacle detection) -->
+  <node name="pointcloud_to_laserscan" pkg="pointcloud_to_laserscan"
+        type="pointcloud_to_laserscan_node">
+    <remap from="cloud_in" to="/cloud_registered_body_1"/>
+    <param name="min_height" value="-1.0"/>
+    <param name="max_height" value="0.15"/>
+    <param name="range_max" value="100.0"/>
+  </node>
+
+  <!-- Move Base (global planner + TEB local planner) -->
+  <node pkg="move_base" type="move_base" respawn="false"
+        name="move_base" output="screen">
+    <rosparam file="$(find xju_pnc)/param/costmap_g1.yaml" command="load"/>
+    <rosparam file="$(find xju_pnc)/param/move_base_params.yaml" command="load"/>
+    <rosparam file="$(find xju_pnc)/param/teb_g1.yaml" command="load"/>
+    <remap from="odom" to="/Odometry_loc"/>
+    <!-- /cmd_vel → velocity_smoother, NOT directly to robot -->
+  </node>
+
+  <!-- Velocity Smoother: /cmd_vel → /cmd_vel_smooth -->
+  <node name="velocity_smoother_ema"> <remap from="raw_cmd_vel" to="/cmd_vel"/> <remap from="cmd_vel_smooth" to="/cmd_vel_smooth"/> pkg="velocity_smoother_ema"
+        type="velocity_smoother_ema_node" output="screen">
+    <rosparam file="$(find velocity_smoother_ema)/param/smoother.yaml" command="load"/>
+    <remap from="raw_cmd_vel" to="/cmd_vel"/>
+  </node>
+</launch>
