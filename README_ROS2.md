@@ -266,13 +266,34 @@ docker exec 3d_nav_ros2 bash -c '
 '
 ```
 
-## 已知问题
+## Waypoint Manager
 
-1. **DDS Docker SHM**: FastRTPS 默认 shared memory 在 Docker 里不通, 必须用 `fastrtps_docker.xml` 禁用 SHM.
-2. **FAST-LIO topic 错配**: 默认配置订阅 `/livox/custom_msg`, 但 LiDAR 驱动发布 `/livox/lidar`. 需改 `mid360.yaml` 中 `lid_topic`.
-3. **open3d_loc 地图路径**: launch 文件中 `map_file` 必须指向实际存在的 PCD 文件.
-4. **Kalman filter NaN**: `kf_baselink2map/*` 参数用 `/` 声明可能与 ROS 2 参数系统不兼容, 导致 motion_link TF 出现 NaN. 不影响 `map→odom` TF 和主定位.
-5. **WiFi 跨机器**: DDS 跨 WiFi 有丢帧, 建图/导航在 G1 本地进行.
+点位管理节点, 保存/列出/删除/导航到命名点位. 存储于 `/root/maps/waypoints.yaml`.
+
+```bash
+# 保存当前位姿 (auto-name: wp_1, wp_2, ...)
+ros2 service call /save_waypoint std_srvs/srv/Trigger
+
+# 列出所有点位
+ros2 service call /list_waypoints std_srvs/srv/Trigger
+
+# 导航到最后保存的点位
+ros2 service call /navigate_last std_srvs/srv/Trigger
+
+# 删除最后保存的点位
+ros2 service call /delete_last std_srvs/srv/Trigger
+```
+
+## 已知问题 & 修复记录
+
+| # | 问题 | 原因 | 修复 |
+|---|------|------|------|
+| 1 | DDS 节点能看到但数据不通 | FastRTPS SHM 在 Docker 不同 exec 会话间隔离 | `fastrtps_docker.xml` 禁 SHM, 只走 UDP |
+| 2 | FAST-LIO 不收 LiDAR 数据 | 订阅 `/livox/custom_msg`, LiDAR 发 `/livox/lidar` | 改 `mid360.yaml` 中 `lid_topic: /livox/lidar` |
+| 3 | open3d_loc 地图加载后 VoxelDownSample 空 | `voxelsize_coarse: 0.01` 太小, 8M 点地图出 0 点 | 改为 `0.15` (跟 ROS1 一致) |
+| 4 | Nav2 bt_navigator 启动崩溃 | `nav2_clear_costmap_service_bt_node` 缺失 | 补全 plugin_lib_names |
+| 5 | "inflation radius < inscribed radius" 警告 | `inflation_radius: 0.25` < G1 内切圆 0.304 | 改为 `0.304` |
+| 6 | Kalman filter motion_link TF NaN | `kf_baselink2map/*` 参数加载失败 | 不影响主定位 (`map→odom` TF 正常) |
 
 ## 相关仓库
 
@@ -291,6 +312,7 @@ docker exec 3d_nav_ros2 bash -c '
 
 | 版本 | 日期 | 分支 | 内容 |
 |------|------|------|------|
+| v3.7.0 | 2026-05-19 | ros2 | Waypoint manager, open3d_loc 修复 (voxel 0.15), Nav2 plugin 补全 |
 | v3.6.0 | 2026-05-19 | ros2 | ROS 2 Nav2 + Regulated Pure Pursuit, DDS Docker 修复 |
 | v3.5.0 | 2026-05-18 | main | ROS 1 完整导航部署文档 + GCR 镜像 |
 | v3.4.0 | 2026-05-15 | main | move_base + DWA + velocity_smoother + bridge + SDK2 |

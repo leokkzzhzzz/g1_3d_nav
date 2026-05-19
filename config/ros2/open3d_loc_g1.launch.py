@@ -60,8 +60,9 @@ def generate_launch_description():
                 'path_map': map_file,
                 # G1: tuned ICP and localization parameters
                 'pcd_queue_maxsize': 10,
-                'voxelsize_coarse': 0.01,
-                'voxelsize_fine': 0.2,
+                # G1: voxelsize_coarse must be >= 0.15 for 8M-point PCD (0.01 causes empty voxels)
+                'voxelsize_coarse': 0.15,
+                'voxelsize_fine': 0.1,
                 'threshold_fitness': 0.5,
                 'threshold_fitness_init': 0.5,
                 'loc_frequence': 2.5,
