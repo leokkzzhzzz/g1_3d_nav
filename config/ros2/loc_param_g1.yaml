@@ -1,0 +1,14 @@
+# open3d_loc localization parameters for G1
+# Original: deepglint/open3d_loc/config/loc_param_g1.yaml (ROS2 Humble)
+
+global_localization_node:
+  ros__parameters:
+    # G1: initial pose seed for ICP — x, y, z (m), roll, pitch, yaw (degrees)
+    initialpose: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+    # G1: Kalman filter for baselink2map smoothing
+    # [process_variance, measurement_variance]
+    kf_baselink2map:
+      x: [0.001, 0.002]
+      y: [0.001, 0.005]
+      z: [0.00001, 0.04]
