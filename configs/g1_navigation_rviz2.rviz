@@ -1,0 +1,176 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Enabled: false
+    - Class: rviz_default_plugins/Axes
+      Name: Axes
+      Enabled: true
+      Length: 1
+      Radius: 0.1
+    - Class: rviz_common/Group
+      Name: loc
+      Displays:
+        - Class: rviz_default_plugins/PointCloud2
+          Name: map
+          Topic: /map
+          Enabled: true
+          Style: Points
+          Size (Pixels): 2
+          Size (m): 0.01
+          Color Transformer: FlatColor
+          Color: 114; 159; 207
+          Alpha: 0.7
+        - Class: rviz_default_plugins/PointCloud2
+          Name: scan
+          Topic: /submap
+          Enabled: false
+          Style: Points
+          Size (Pixels): 2
+          Color Transformer: RGB8
+          Alpha: 0.5
+        - Class: rviz_default_plugins/PointCloud2
+          Name: scan2map
+          Topic: /scan2map
+          Enabled: false
+          Style: Points
+          Size (Pixels): 3
+          Color Transformer: RGB8
+        - Class: rviz_default_plugins/Odometry
+          Name: baselink2map
+          Topic: /baselink2map
+          Enabled: false
+          Keep: 1
+          Shape: Axes
+          Axes Length: 2
+          Axes Radius: 0.05
+        - Class: rviz_default_plugins/PointCloud2
+          Name: submap
+          Topic: /submap
+          Enabled: false
+          Style: Points
+          Size (Pixels): 1
+          Size (m): 1
+          Color Transformer: RGB8
+          Alpha: 0.3
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Enabled: true
+      Frame Timeout: 15
+      Show Arrows: false
+      Show Axes: true
+      Show Names: true
+      Marker Scale: 10
+    - Class: rviz_default_plugins/PointCloud2
+      Name: cur_submap
+      Topic: /cloud_registered_body_1
+      Enabled: true
+      Style: Flat Squares
+      Size (Pixels): 3
+      Size (m): 0.1
+      Color Transformer: FlatColor
+      Decay Time: 0.5
+    - Class: rviz_default_plugins/PointStamped
+      Name: PointStamped
+      Topic: /chassis_ctl_node/cur_track_point
+      Enabled: true
+      History Length: 100
+      Radius: 0.01
+      Color: 204; 41; 204
+    - Class: rviz_default_plugins/PointStamped
+      Name: PointStamped
+      Topic: /chassis_ctl_action/cur_track_point
+      Enabled: true
+      History Length: 1
+      Radius: 0.04
+      Color: 204; 41; 204
+    - Class: rviz_default_plugins/PointCloud2
+      Name: cur_ori
+      Topic: /cur_pcd_ori
+      Enabled: false
+      Style: Flat Squares
+      Size (Pixels): 3
+      Size (m): 0.1
+      Color Transformer: Intensity
+      Decay Time: 0.5
+    - Class: rviz_default_plugins/PointCloud2
+      Name: cur_trans
+      Topic: /cur_pcd_trans
+      Enabled: false
+      Style: Flat Squares
+      Size (Pixels): 3
+      Size (m): 0.1
+      Color Transformer: FlatColor
+      Decay Time: 1.0
+    - Class: rviz_default_plugins/Pose
+      Name: Pose
+      Topic: /cur_pose
+      Enabled: true
+      Shape: Axes
+      Axes Length: 3
+      Axes Radius: 0.1
+      Color: 255; 25; 0
+    - Class: rviz_default_plugins/RobotModel
+      Name: RobotModel
+      Enabled: false
+      Robot Description: robot_description
+    - Class: rviz_default_plugins/MarkerArray
+      Name: MarkerArray
+      Topic: /aviable_path
+      Enabled: true
+      Queue Size: 100
+    - Class: rviz_default_plugins/MarkerArray
+      Name: MarkerArray
+      Topic: /record_stations_name
+      Enabled: true
+      Queue Size: 100
+    - Class: rviz_default_plugins/MarkerArray
+      Name: MarkerArray
+      Topic: /record_stations_sphere
+      Enabled: true
+      Queue Size: 100
+    - Class: rviz_default_plugins/Map
+      Name: Map
+      Topic: /map_2d
+      Enabled: true
+      Color Scheme: map
+      Alpha: 0.7
+      Draw Behind: false
+    - Class: rviz_default_plugins/LaserScan
+      Name: LaserScan
+      Topic: /scan
+      Enabled: true
+      Style: Flat Squares
+      Size (Pixels): 3
+      Size (m): 0.1
+      Color: 255; 0; 0
+    - Class: rviz_default_plugins/Path
+      Name: Path
+      Topic: /move_base/GlobalPlanner/plan
+      Enabled: true
+      Color: 25; 255; 0
+      Line Width: 0.03
+  Global Options:
+    Fixed Frame: map
+    Frame Rate: 30
+    Background Color: 48; 48; 48
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+    - Class: rviz_default_plugins/SetInitialPose
+      Topic: /initialpose
+    - Class: rviz_default_plugins/SetGoal
+      Topic: /move_base_simple/goal
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 10
+      Pitch: 0.8
+      Yaw: 0.5

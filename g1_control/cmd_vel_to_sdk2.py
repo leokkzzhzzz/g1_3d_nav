@@ -23,7 +23,8 @@ class CmdVelToSDK2(Node):
         self.robot.SetTimeout(10.0)
         self.robot.SetFsmId(4)
         self.robot.Init()
-        self.robot.Damp()
+        # G1: no Damp() here — robot is already in sport mode from remote control.
+        # Damp() would force a FSM switch back, causing extra latency on first Move().
         self.get_logger().info(f"G1 SDK2 initialized on {iface}")
 
         self.create_subscription(Twist, "/cmd_vel_smooth", self.cb, 10)

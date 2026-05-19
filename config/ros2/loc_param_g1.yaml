@@ -6,9 +6,8 @@ global_localization_node:
     # G1: initial pose seed for ICP — x, y, z (m), roll, pitch, yaw (degrees)
     initialpose: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
-    # G1: Kalman filter for baselink2map smoothing
-    # [process_variance, measurement_variance]
-    kf_baselink2map:
-      x: [0.001, 0.002]
-      y: [0.001, 0.005]
-      z: [0.00001, 0.04]
+    # G1: Kalman filter — MUST use slash (kf_baselink2map/x).
+    # C++ declares "kf_baselink2map/x", ROS2 nesting → "kf_baselink2map.x" (mismatch).
+    kf_baselink2map/x: [0.001, 0.002]
+    kf_baselink2map/y: [0.001, 0.005]
+    kf_baselink2map/z: [0.00001, 0.04]
