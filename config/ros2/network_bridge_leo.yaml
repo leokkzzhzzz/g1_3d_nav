@@ -1,0 +1,38 @@
+# Leo side: TCP client — receives from G1, republishes locally for RViz2
+/**/*:
+  ros__parameters:
+    network_interface: "network_bridge::TcpInterface"
+
+    TcpInterface:
+      role: "client"
+      remote_address: "192.168.100.30"
+      port: 5000
+
+    default_rate: 30.0
+    default_zstd_level: 3
+    publish_stale_data: False
+
+    subscribe_namespace: "/leo_in"
+    publish_namespace: "/leo_out"
+
+    topics:
+      - "/tf"
+      - "/tf_static"
+      - "/map"
+      - "/map_2d"
+      - "/scan"
+      - "/localization_3d"
+      - "/localization_3d_confidence"
+      - "/Odometry_loc"
+      - "/Laser_map_1"
+      - "/cloud_registered_body_1"
+      - "/cloud_registered_1"
+
+    /tf:
+      is_tf: True
+      is_static_tf: False
+      rate: 15.0
+
+    /tf_static:
+      is_static_tf: True
+      rate: 1.0
