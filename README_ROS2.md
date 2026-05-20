@@ -2,6 +2,59 @@
 
 Unitree G1 人形机器人 ROS 2 Humble 3D 导航。**离线建图 + 3D ICP 重定位 + Nav2 导航 + SDK2 底盘控制。**
 
+## 快速启动
+
+### 1. G1 启动容器
+
+```bash
+docker start 3d_nav_ros2
+```
+
+### 2. G1 一键启动全栈 (5 节点)
+
+```bash
+docker exec 3d_nav_ros2 bash /root/start_all.sh
+```
+
+启动: LiDAR → FAST-LIO → open3d_loc → map_server → pointcloud_to_laserscan
+约 60-100 秒完成 (open3d_loc 加载 PCD)。
+
+### 3. G1 启动 network_bridge TCP Server
+
+```bash
+docker exec -d 3d_nav_ros2 bash -c '
+  source /opt/ros/humble/setup.bash
+  ros2 run network_bridge network_bridge --ros-args \
+    -r __node:=TcpServer \
+    --params-file /root/network_bridge_g1.yaml
+'
+```
+
+### 4. Leo 启动 network_bridge TCP Client
+
+```bash
+source /opt/ros/humble/setup.bash
+ros2 daemon stop 2>/dev/null
+ros2 daemon start
+sleep 2
+nohup ros2 run network_bridge network_bridge --ros-args \
+  -r __node:=TcpClient \
+  --params-file /home/leo/network_bridge_leo.yaml > /tmp/bridge_leo.log 2>&1 &
+```
+
+### 5. Leo 启动 RViz2
+
+```bash
+kill $(pgrep rviz2) 2>/dev/null
+source /opt/ros/humble/setup.bash
+rviz2 -d /home/leo/g1_3d_nav_deploy/configs/g1_navigation_rviz2.rviz
+```
+
+### Tailscale 远程连接
+如果不在同一局域网，修改 config 中的 IP 为 Tailscale IP (G1: 100.76.79.32)。
+
+---
+
 ## 架构
 
 ```
