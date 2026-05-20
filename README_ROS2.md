@@ -34,9 +34,7 @@ docker exec -d 3d_nav_ros2 bash -c '
 
 ```bash
 source /opt/ros/humble/setup.bash
-ros2 daemon stop 2>/dev/null
-ros2 daemon start
-sleep 2
+ros2 daemon stop 2>/dev/null && ros2 daemon start && sleep 2
 nohup ros2 run network_bridge network_bridge --ros-args \
   -r __node:=TcpClient \
   --params-file /home/leo/network_bridge_leo.yaml > /tmp/bridge_leo.log 2>&1 &
