@@ -100,6 +100,12 @@ jie_3d_nav 和 deepglint 在 G1 实机构建独立 ROS 2 colcon workspace。Hong
 **Why**: rl_hnav 是 5080 仿真机环境，与实机 G1 无关。ROS 1 离线建图和 ROS 2 运行时完全隔离，通过 PCD 文件传递数据。
 **How to apply**: ROS 2 侧在 G1 上创建 `~/g1_3d_ws/src/`，clone 所有 ROS 2 包。ROS 1 侧拉取 HongTu 镜像或 Dockerfile，挂载宿主机目录保存 PCD 产物。
 
+### ADR-006: 跨机器数据验证 — ros1_bridge 桥接方案
+
+ROS2 DDS 在多网卡（WiFi + Tailscale + Docker）跨机器环境下 topic 数据不稳定。短期验证方案：在 G1 宿主机运行 `ros1_bridge`，将 ROS2 topic 映射到 ROS1 roscore，Leo 通过 ROS1 TCP 链路查看数据。
+**Why**: Zenoh bridge 和 TCP network_bridge 两种方案都因 Leo 端 DDS 多网卡摇摆导致数据无法稳定到达。ROS1 roscore 的纯 TCP 架构已证明在 Tailscale/跨子网下可靠。ros1_bridge 在 G1 本地同时接入 ROS2 DDS 和 ROS1 roscore（均在 localhost），避开跨机器 DDS。
+**How to apply**: 使用 [ros-humble-ros1-bridge-builder](https://github.com/TommyChangUMD/ros-humble-ros1-bridge-builder) 在 G1 上构建预编译的 `ros1_bridge` 包，启动时运行 `dynamic_bridge --bridge-all-2to1-topics`。详见 `docs/ROS1_BRIDGE_SOLUTION.md`。
+
 ## Relationships
 
 - **离线建图** 先于 **全局重定位**：必须先产出一份高质量的 PCD 地图
@@ -107,7 +113,8 @@ jie_3d_nav 和 deepglint 在 G1 实机构建独立 ROS 2 colcon workspace。Hong
 - **离线地图包** 由 PCD 通过 pcd_to_octomap_node 转换产生
 - **离线建图** 和 **离线地图包** 可以独立更新：重新扫图后替换 PCD 和 OctoMap
 - **G1 运动控制** 不执行侧移，所有路径跟踪的 vy 分量必须为 0
-- ROS 1 和 ROS 2 之间唯一的接口是 **PCD 文件**
+- 离线建图时 ROS 1 和 ROS 2 之间唯一的接口是 **PCD 文件**
+- **ros1_bridge** 运行时桥接 ROS2 → ROS1，仅用于验证，非生产路径
 
 ## Deployment Tracks
 
@@ -115,7 +122,10 @@ jie_3d_nav 和 deepglint 在 G1 实机构建独立 ROS 2 colcon workspace。Hong
 |-------|-------|---------|--------|
 | Track 1a | deepglint ROS 1 离线建图 → scans.pcd | ROS 1 容器 `hongtu-fastlio2:noetic` | ✅ 完成 |
 | Track 1b | deepglint ROS 2 重定位 | ROS 2 容器 `3d_nav_g1` | ✅ 编译完成, ⬜ 冒烟测试 |
+| Track 1c | ros1_bridge 跨机器数据验证 | G1 宿主机 | ⬜ 待构建 |
 | Track 2 | jie_3d_nav OctoMap + 规划 + Web | ROS 2 容器 `3d_nav_g1` | ⬜ 未开始 |
 | Track 3 | g1pilot 控制器接入 | ROS 2 容器 `3d_nav_g1` | ⬜ 未开始 |
+| Track 4 | ROS2 DDS 直连（多网卡修复后） | G1 ↔ Leo 原生 ROS2 | ⬜ 未开始 |
 
 Track 1a → 产出 scans.pcd → Track 1b + Track 2 并行 → Track 3。
+Track 1c 为验证 Track 1b 数据正确性的中间方案，Track 4 为最终目标。
