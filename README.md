@@ -34,173 +34,139 @@ Unitree G1 人形机器人 3D 导航部署。**离线建图 + 3D 重定位 + 2D 
 ```
 G1 (Jetson Orin NX)
 ┌──────────────────────────────────────────────┐
-│ hongtu_mapper 容器 (ROS 1 Noetic, network host)│
+│ hongtu_persistent 容器 (ROS 1 Noetic)         │
 │                                              │
 │ livox_ros_driver2 (MID360 驱动 @ 10Hz)        │
 │   ↓ /livox/lidar                             │
 │ fast_lio (FAST-LIO2 里程计)                    │
-│   ↓ /Odometry_loc, /Laser_map_1              │
-│ open3d_loc (ICP 全局重定位)                    │
-│   ↓ /map (预建 129MB PCD), /localization_3d   │
-│ foxglove_bridge (WebSocket ws://:9090)        │
+│   ↓ /Odometry_loc, /cloud_registered_body_1  │
+│ open3d_loc (ICP 全局重定位, 加载 247M PCD)     │
+│   ↓ /localization_3d, /map (PointCloud2)      │
+│ map_server (2D 栅格地图)                       │
+│   ↓ /map_2d                                   │
 │                                              │
-│ ← X11 rviz 转发到 Leo                         │
+│ ← TCPROS (WiFi) → Leo RViz                   │
 └──────────────────────────────────────────────┘
 ```
 
-## ROS 1 版本
-
-### 架构
-
-所有进程在 G1 的 `hongtu_mapper` 容器内运行（ROS 1 Noetic, network host）：
-
-```
-livox_ros_driver2 (MID360 驱动, 10Hz)
-  → /livox/lidar (CustomMsg)
-fast_lio (FAST-LIO2 里程计)
-  → /Odometry_loc, /Laser_map_1, /cloud_registered_body_1
-open3d_loc (ICP 全局重定位, 加载预建 PCD)
-  → /map, /localization_3d, /localization_3d_confidence
-foxglove_bridge (WebSocket ws://:9090)
-  → Foxglove Studio 本地渲染（比 X11 流畅）
-```
-
-### 前提：容器已运行
-
-```bash
-docker run -d --network host --name hongtu_mapper \
-    -e DISPLAY=:0 \
-    -v /tmp/.X11-unix:/tmp/.X11-unix:ro \
-    -v ~/g1_3d_nav/deepglint_ws:/root/deepglint_ws \
-    -v ~/g1_3d_nav/deepglint_loc:/root/deepglint_loc \
-    -v ~/g1_3d_nav/maps:/root/maps \
-    hongtu-fastlio2:noetic sleep infinity
-```
-
-### Track 1a: 离线建图 + 2D 栅格生成
-
-**G1 终端 1 — MID360 驱动：**
-
-```bash
-docker exec -it hongtu_mapper bash -c 'source /opt/ros/noetic/setup.bash && source /root/deepglint_ws/devel/setup.bash && roslaunch livox_ros_driver2 msg_MID360.launch'
-```
-
-**G1 终端 2 — FAST-LIO 建图（不开 RViz）：**
-
-```bash
-docker exec -it hongtu_mapper bash -c 'source /opt/ros/noetic/setup.bash && source /root/deepglint_ws/devel/setup.bash && roslaunch fast_lio mapping_mid360_g1.launch rviz:=false'
-```
-
-**G1 终端 3 — 2D 栅格累积：**
-
-```bash
-docker exec -it hongtu_mapper bash -c 'source /opt/ros/noetic/setup.bash && source /root/deepglint_ws/devel/setup.bash && /root/deepglint_ws/devel/lib/grid_accumulator/ground_cloud_accumulator _cloud_in:=/cloud_registered_body_1 _map_frame:=camera_init _ground_z_thresh:=0.15 _obstacle_z_thresh:=0.25 _publish_rate:=2.0 _auto_resize:=true _grid_out:=/accumulated_grid'
-```
-
-> 建图时 map 帧为 `camera_init`（FAST-LIO 世界坐标系），必须用 `_map_frame:=camera_init`。
-
-**Ctrl-C 三个终端，产物：**
-- `scans.pcd` — 3D 全局点云 (FAST_LIO/PCD/)
-- `accumulated_grid.pgm + yaml` — 2D 栅格地图 (maps/)
-
-**Leo 建图监控：**
-```bash
-docker exec leo_rviz bash -c 'source /opt/ros/noetic/setup.bash && rviz -d /root/loam_livox.rviz'
-```
-Fixed Frame → `camera_init`，Add → `/accumulated_grid` → Map。
-
 ---
 
-### Track 1b: 重定位 + 导航 + 远程 RViz
+## 快速部署（ros1 分支）
 
-#### 一键启动
+### 1. 构建持久化镜像
 
-**G1 终端1 — 全栈导航：**
-```bash
-docker start hongtu_mapper && bash start_nav.sh
-```
-
-**G1 终端2 — 底盘控制：**
-```bash
-bash start_nav_host.sh
-```
-
-**Leo — RViz：**
-```bash
-docker exec leo_rviz bash -c 'source /opt/ros/noetic/setup.bash && rviz -d /root/maps/g1_navigation.rviz'
-```
-
-RViz 工具栏 → **2D Nav Goal** → 点目标位置 → 规划 + G1 运动。
-
-#### 指令说明
-
-`start_nav.sh` 按顺序启动：roscore → LiDAR驱动 → FAST-LIO → open3d_loc → map_server → pointcloud_to_laserscan → move_base(TEB) → velocity_smoother → bridge_sender
-
-`start_nav_host.sh` 启动 TCP→SDK2 桥接控制器（`bridge_and_control.py`）。
-
-#### 停止
+基于 `hongtu-fastlio2:noetic`，固化所有 apt/pip 依赖，产出 `hongtu-persistent:latest`：
 
 ```bash
-# 容器
-docker stop hongtu_mapper
-
-# 宿主控制
-pkill -9 -f bridge_and_control
-```
-pkill -9 python3 2>/dev/null
-rm -f /dev/shm/cyclonedds* /dev/shm/dds*
-nohup python3 /tmp/bridge_and_control.py > /tmp/bridge_control.log 2>&1 &
-# 检查: cat /tmp/bridge_control.log → "SDK2 ready" + "Bridge connected"
+cd ~/g1_ros1_ws
+docker build --network host -t hongtu-persistent:latest -f Dockerfile .
 ```
 
-**Leo — RViz：**
+### 2. 准备宿主机目录
 
 ```bash
-docker exec leo_rviz bash -c 'source /opt/ros/noetic/setup.bash && rviz -d /root/maps/g1_navigation.rviz'
+~/g1_ros1_ws/
+├── src/deepglint/              ← FAST_LIO + livox_ros_driver2 + open3d_loc
+├── src/navigation/             ← pointcloud_to_laserscan 等
+├── devel/lib/                  ← 编译产物
+├── Dockerfile                  ← 镜像构建文件
+├── entrypoint.sh               ← Open3D 软链 + 启动
+└── scripts/start_loc.sh        ← 一键启动脚本
+
+~/g1_deps/open3d141/            ← Open3D C++ SDK（从 3d_nav_g1 镜像提取）
+
+~/g1_3d_nav/maps/
+├── scans.pcd                   ← 3D 全局点云 (247M)
+├── accumulated_grid.pgm        ← 2D 栅格地图
+└── accumulated_grid.yaml
 ```
 
-RViz 工具栏 → **2D Nav Goal** → 点目标位置 → 规划 + 控制。
+### 3. 创建持久化容器
 
-### Leo 远程 RViz
+```bash
+docker run -d \
+    --runtime=runc \
+    --network host \
+    --name hongtu_persistent \
+    --restart unless-stopped \
+    -v ~/g1_ros1_ws:/root/g1_ros1_ws \
+    -v ~/g1_deps:/root/g1_deps \
+    -v ~/g1_3d_nav/maps:/root/maps \
+    hongtu-persistent:latest \
+    sleep infinity
+```
 
-#### 原理
+### 4. 一键启动定位全栈
 
-G1 上所有 ROS 节点运行在一个容器内（`hongtu_mapper`），使用 `--network host` 暴露所有端口。Leo 本地开一个 ROS 1 容器，`ROS_MASTER_URI` 指向 G1 的 roscore。**数据走 WiFi（TCPROS），渲染走 Leo Intel GPU**——比 X11 转发帧率大幅提升。
+```bash
+docker exec hongtu_persistent bash /root/g1_ros1_ws/scripts/start_loc.sh
+```
+
+脚本按顺序启动 4 个节点，每步自动验证 topic 上线：
+
+| 步骤 | 节点 | 验证 topic |
+|------|------|-----------|
+| 1 | livox_ros_driver2 MID360 驱动 | `/livox/lidar` |
+| 2 | FAST-LIO 里程计 | `/cloud_registered_body_1` |
+| 3 | open3d_loc ICP 全局定位 | `/localization_3d` |
+| 4 | map_server 2D 栅格地图 | `/map_2d` |
+
+### 5. Topic 参考
+
+| Topic | 类型 | 发布者 | 用途 |
+|-------|------|--------|------|
+| `/livox/lidar` | CustomMsg | livox_ros_driver2 | MID360 原始点云 |
+| `/livox/imu` | Imu | livox_ros_driver2 | MID360 IMU |
+| `/cloud_registered_body_1` | PointCloud2 | FAST-LIO | 实时 3D 点云 (body frame) |
+| `/Odometry_loc` | Odometry | FAST-LIO | 里程计 |
+| `/localization_3d` | PoseWithCovariance | open3d_loc | 全局定位结果 |
+| `/map` | PointCloud2 | open3d_loc | 预建 3D PCD 地图 |
+| `/submap` | PointCloud2 | open3d_loc | 局部子地图 |
+| `/map_2d` | OccupancyGrid | map_server | 2D 栅格地图 |
+| `/tf` | TF2 | open3d_loc + FAST-LIO | map→odom→camera_init→body |
+
+### 6. 停止
+
+```bash
+# 停止容器
+docker stop hongtu_persistent
+
+# 只停内部进程（保留容器）
+docker exec hongtu_persistent bash -c \
+  "pkill -9 -f 'rosmaster|roslaunch|fastlio_mapping|global_localization_node|livox_ros_driver2_node|map_server'"
+```
+
+### 7. Leo 远程 RViz
+
+```bash
+docker start leo_rviz
+xhost +local:
+docker exec -e DISPLAY=:1 -e XAUTHORITY=/root/.Xauthority -e QT_X11_NO_MITSHM=1 \
+  -e ROS_MASTER_URI=http://192.168.100.30:11311 leo_rviz bash -c '
+source /opt/ros/noetic/setup.bash
+rviz -d /root/maps/g1_navigation.rviz
+'
+```
+
+RViz 显示配置：
+- Fixed Frame → `map`
+- Map → `/map_2d`（2D 栅格地图）
+- PointCloud2 → `/map`（3D 静态 PCD）
+- PointCloud2 → `/cloud_registered_body_1`（实时激光点云）
+
+### Leo RViz 工作原理
+
+G1 上所有 ROS 节点运行在一个容器内（`hongtu_persistent`），使用 `--network host` 暴露所有端口。Leo 本地开一个 ROS 1 容器，`ROS_MASTER_URI` 指向 G1 的 roscore。**数据走 WiFi（TCPROS），渲染走 Leo Intel GPU**。
 
 ```
-G1 hongtu_mapper                              Leo leo_rviz
+G1 hongtu_persistent                         Leo leo_rviz
 ┌──────────────────────────┐                 ┌────────────────────────┐
 │ roscore :11311           │   TCPROS (WiFi) │ ROS_MASTER_URI=G1:11311 │
-│ /livox/lidar             │ ◄────────────── │ /etc/hosts: unitree-g1-nx │
-│ /Odometry_loc            │   数据流          │ rviz -d loc_map_cur.rviz │
-│ /map (129MB PCD)         │                 │ → Leo GPU 本地渲染      │
-│ /Laser_map_1             │                 └────────────────────────┘
+│ /livox/lidar             │ ◄────────────── │ /etc/hosts: unitree-g1-nx│
+│ /Odometry_loc            │   数据流         │ rviz -d g1_navigation   │
+│ /map (247M PCD)          │                 │ → Leo GPU 本地渲染      │
+│ /cloud_registered_body_1 │                 └────────────────────────┘
 └──────────────────────────┘
-```
-
-#### 一次性准备（Leo）
-
-```bash
-# 创建 ROS 1 rviz 容器
-docker run -d --name leo_rviz \
-    -e DISPLAY=:1 \
-    -e ROS_MASTER_URI=http://192.168.100.30:11311 \
-    -v /tmp/.X11-unix:/tmp/.X11-unix:ro \
-    -v /home/leo/g1_3d_nav_deploy/configs:/root/configs:ro \
-    ros:noetic-ros-base sleep infinity
-
-# 安装 rviz + 添加 G1 hostname 解析（关键）
-docker exec leo_rviz apt-get update -qq
-docker exec leo_rviz apt-get install -y -qq ros-noetic-rviz
-docker exec leo_rviz bash -c 'echo "192.168.100.30 unitree-g1-nx" >> /etc/hosts'
-```
-
-> **为什么加 `/etc/hosts`**：ROS publisher 广播主机名 `unitree-g1-nx`，Leo 容器 DNS 无法解析 → 数据连不上。加 hosts 后 TCPROS 直连。
-
-#### 启动 RViz
-
-```bash
-docker exec leo_rviz bash -c 'source /opt/ros/noetic/setup.bash && rviz -d /root/configs/loc_map_cur_leo.rviz'
 ```
 
 ### 重定位操作
@@ -212,77 +178,24 @@ docker exec leo_rviz bash -c 'source /opt/ros/noetic/setup.bash && rviz -d /root
 ### 验证定位
 
 ```bash
-docker exec hongtu_mapper bash -c 'source /opt/ros/noetic/setup.bash && source /root/deepglint_ws/devel/setup.bash && timeout 5 rostopic echo /localization_3d_confidence -n 1'
+docker exec hongtu_persistent bash -c 'source /opt/ros/noetic/setup.bash && \
+  source /root/g1_ros1_ws/devel/setup.bash && \
+  timeout 5 rostopic echo /localization_3d_confidence -n 1'
 # > 0.7 → 锁定；> 0.9 → 高精度
 ```
 
-### 重定位操作
-
-1. RViz 中点击 **2D Pose Estimate**（绿色箭头）
-2. 在地图点云上点击 G1 当前位置，拖动箭头对准前进方向
-3. ICP 自动匹配
-
-### 验证定位精度
-
-```bash
-# 实时置信度（ICP fitness）
-docker exec hongtu_mapper bash -c 'source /opt/ros/noetic/setup.bash && source /root/deepglint_ws/devel/setup.bash && rostopic echo /localization_3d_confidence'
-# > 0.7 → 锁定；> 0.9 → 高精度
-
-# 当前位姿
-docker exec hongtu_mapper bash -c 'source /opt/ros/noetic/setup.bash && source /root/deepglint_ws/devel/setup.bash && timeout 5 rostopic echo /localization_3d -n 1'
-
-# RViz 肉眼验证：/map（灰色预建地图）vs /cloud_registered_body_1（彩色实时点云）是否对齐
-```
-
-## 目录结构
-
-```
-~/g1_3d_nav/
-├── deepglint_ws/              ← ROS 1 workspace (FAST-LIO + livox + open3d_loc)
-│   ├── src/
-│   │   ├── FAST_LIO -> ../../deepglint_loc/FAST_LIO
-│   │   ├── livox_ros_driver2 -> ../../deepglint_loc/livox_ros_driver2
-│   │   └── open3d_loc -> ../../deepglint_loc/open3d_loc
-│   └── devel/lib/
-│       ├── fast_lio/fastlio_mapping
-│       ├── livox_ros_driver2/livox_ros_driver2_node
-│       └── open3d_loc/global_localization_node
-├── deepglint_loc/             ← deepglint 源码 (main 分支, ROS 1)
-├── deps/open3d141/            ← Open3D v1.4.1 (ARM64 预编译)
-├── maps/
-│   ├── scans.ply (129MB)      ← Track 1a 建图输出
-│   └── map.ply → scans.ply    ← 定位加载的地图
-└── g1_ws/                     ← ROS 2 workspace (humble, 待补齐)
-```
-
-## Docker 镜像
+## 容器镜像
 
 | 镜像 | ROS | 大小 | 用途 |
 |------|-----|------|------|
-| `hongtu-fastlio2:noetic` | Noetic | 5.7GB | Track 1a+1b ROS 1 全部 |
-| `3d_nav_g1` | Humble | 7.2GB | Track 2/3 (待用) |
-
-### 拉取镜像 (Google Cloud Artifact Registry)
+| `hongtu-fastlio2:noetic` | Noetic | 5.7GB | 基镜像 |
+| `hongtu-persistent:latest` | Noetic | ~5.7GB | 固化依赖的持久化版本 |
+| `3d_nav_g1` | Humble | 7.2GB | ROS 2 导航 (待用) |
 
 ```bash
-# ROS 1 全栈镜像（建图+定位+导航）
+# 拉取基镜像
 docker pull us-central1-docker.pkg.dev/dreamcontroltrain/g1-nav/hongtu-fastlio2:noetic
-
-# ROS 2 镜像（待用）
-docker pull us-central1-docker.pkg.dev/dreamcontroltrain/g1-nav/3d_nav_g1:latest
 ```
-
-### 创建 hongtu_mapper 容器
-
-```bash
-docker run -d --network host --name hongtu_mapper \
-    -e DISPLAY=:0 \
-    -v /tmp/.X11-unix:/tmp/.X11-unix:ro \
-    -v ~/g1_3d_nav/deepglint_ws:/root/deepglint_ws \
-    -v ~/g1_3d_nav/deepglint_loc:/root/deepglint_loc \
-    -v ~/g1_3d_nav/maps:/root/maps \
-    hongtu-fastlio2:noetic sleep infinity
 
 ## 硬件
 
@@ -298,11 +211,13 @@ docker run -d --network host --name hongtu_mapper \
 - [deepglint FAST_LIO_LOCALIZATION_HUMANOID](https://github.com/deepglint/FAST_LIO_LOCALIZATION_HUMANOID)
 - [jie_3d_nav](https://github.com/6-robot/jie_3d_nav)
 - [g1pilot](https://github.com/hucebot/g1pilot)
+- [BotBrain](https://github.com/R-LFX/botbrain_project) — G1 导航 + 控制 (ROS 2)
 
 ## 版本
 
 | 版本 | 日期 | 内容 |
 |------|------|------|
+| v3.5.0 | 2026-05-22 | **持久化部署** — Dockerfile + entrypoint 固化依赖, start_loc.sh 一键启动 4 步定位全栈, topic 自动验证 |
 | v3.4.0 | 2026-05-15 | 导航全栈：move_base + DWA + velocity_smoother + bridge + SDK2 控制链, 镜像推送到 GCR |
 | v3.0.0 | 2026-05-14 | **切回 ROS 1 主方案** — open3d_loc 编译成功, loc_map_cur.rviz 官方可视化, 远程 X11 + Foxglove 双通道, 定位 conf=0.90 |
 | v2.2.0 | 2026-05-13 | ROS 2 DDS 远程 RViz 实验通过 (已废弃) |
