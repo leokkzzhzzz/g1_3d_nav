@@ -24,7 +24,7 @@ def generate_launch_description():
     ])
 
     # 地图文件路径 - 使用绝对路径指向源码目录中的地图文件
-    map_file = '/root/maps/scans.ply'
+    map_file = "/home/unitree/g1_3d_nav/maps/scans.pcd"
 
     # 静态TF发布节点 - camera_init to odom
     static_tf_camera_init2odom = Node(
@@ -64,8 +64,8 @@ def generate_launch_description():
             {
                 'path_map': map_file,
                 'pcd_queue_maxsize': 10,
-                'voxelsize_coarse': 0.01,
-                'voxelsize_fine': 0.2,
+                'voxelsize_coarse': 0.15,
+                'voxelsize_fine': 0.1,
                 'threshold_fitness': 0.5,
                 'threshold_fitness_init': 0.5,
                 'loc_frequence': 2.5,
