@@ -711,6 +711,7 @@ void GloabalLocalization::LocalizationInitialize()
             source->Transform(reg_matrix);
             *pcd_scan2map = *source;
 
+            if (target->IsEmpty()) { lock_mat_odom2map_.unlock(); continue; }
             // auto multiScale_reg_matrix = pcd_tools::RegistrationMultiScaleIcp(source, target, voxelsize_fine_, 1, {1, 2, 4});
             auto multiScale_reg_matrix = pcd_tools::RegistrationMultiScaleIcp(source, target, voxelsize_fine_, 1, {1, 2, 3});
             reg_matrix = multiScale_reg_matrix * reg_matrix;
@@ -945,6 +946,7 @@ void GloabalLocalization::Localization()
             }
             open3d::utility::LogInfo("after prerpocess: {}", source->points_.size());
 
+            if (target->IsEmpty()) { lock_mat_odom2map_.unlock(); continue; }
             auto reg_result2 = pcd_tools::RegistrationIcp(source, target, voxelsize_fine_ * 2, reg_matrix, 1);
             reg_matrix = reg_result2.transformation_ * reg_matrix;
             auto eva_result2 = open3d::pipelines::registration::EvaluateRegistration(*source, *target, voxelsize_fine_ * 4, reg_matrix);
