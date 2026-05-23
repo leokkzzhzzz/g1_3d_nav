@@ -378,6 +378,7 @@ GloabalLocalization::GloabalLocalization() : Node("global_loc_node"),
     {
         RCLCPP_ERROR(this->get_logger(), "read map from path: %s failed", path_map.c_str());
         rclcpp::shutdown();
+        return;
     }
 
     if (!pcd_map_ori_->HasColors())
@@ -1029,5 +1030,6 @@ int main(int argc, char *argv[])
     executor.spin();
 
     rclcpp::shutdown();
+        return;
     return 0;
 }
